@@ -57,8 +57,8 @@ Saving a mapping updates desired state; **it does not instantly publish DNS or a
 A single logical UFW rule can contain multiple source entries:
 
 ```text
-103.185.24.0/24
-103.193.10.0/23
+192.168.0.0/24
+192.167.10.0/23
 ```
 
 The system expands enabled source/protocol combinations into individual managed UFW operations. **Ports 80 and 443 are separate rules**: restricting HTTP does not automatically restrict HTTPS. Maintain a safe SSH path before applying firewall changes.
