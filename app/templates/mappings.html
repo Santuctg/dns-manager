@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="content-stack">
+  <div class="toolbar card">
+    <div class="toolbar-group"><input class="search-input" data-mapping-search placeholder="Search domains or upstreams"><select data-mapping-filter><option value="all">All mappings</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="up">UP</option><option value="down">Problem</option></select></div>
+    <div class="toolbar-group">
+      {% if can_config_apply %}<button class="btn btn-secondary" data-action="config-preview">Preview</button><button class="btn btn-primary" data-action="config-apply">Apply Changes</button>{% endif %}
+      {% if can_mapping_create %}<button class="btn btn-primary" data-action="mapping-create">Add Mapping</button>{% endif %}
+    </div>
+  </div>
+  <section class="card"><div class="table-wrap"><table><thead><tr><th>Domain</th><th>Upstream</th><th>Status</th><th>Enabled</th><th>Updated</th><th></th></tr></thead><tbody data-mappings-table><tr><td colspan="6" class="muted">Loading mappings…</td></tr></tbody></table></div></section>
+</section>
+<dialog class="modal" data-mapping-dialog><form method="dialog" data-mapping-form><div class="modal-head"><h2 data-mapping-dialog-title>Add mapping</h2><button class="icon-btn" type="button" data-dialog-close aria-label="Close">×</button></div><input type="hidden" name="id"><input type="hidden" name="version"><div class="form-grid"><label class="span-2">Domain<input name="domain" placeholder="panel.example.com" required></label><label>Scheme<select name="upstream_scheme"><option>http</option><option>https</option></select></label><label>Port<input name="upstream_port" type="number" min="1" max="65535" required></label><label class="span-2">Upstream host<input name="upstream_host" required></label><label class="check"><input name="enabled" type="checkbox" checked> Enabled</label><label class="check"><input name="websocket_enabled" type="checkbox"> WebSocket</label><label class="check"><input name="preserve_host" type="checkbox"> Preserve Host</label><label class="check"><input name="tls_verify" type="checkbox" checked> Verify TLS</label><label>Timeout<input name="custom_timeout" type="number" min="1" placeholder="Default"></label><label class="span-2">Description<textarea name="description" rows="3"></textarea></label></div><div class="modal-actions"><button class="btn btn-ghost" type="button" data-dialog-close>Cancel</button><button class="btn btn-primary" type="submit" value="default">Save mapping</button></div></form></dialog>
+<dialog class="modal modal-wide" data-preview-dialog><div class="modal-head"><h2>Pending configuration</h2><button class="icon-btn" type="button" data-dialog-close aria-label="Close">×</button></div><div class="preview-grid"><div><h3>dnsmasq</h3><pre data-preview-dns></pre></div><div><h3>Nginx</h3><pre data-preview-nginx></pre></div></div></dialog>
+{% endblock %}

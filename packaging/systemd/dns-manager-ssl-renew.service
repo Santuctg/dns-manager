@@ -1,0 +1,18 @@
+[Unit]
+Description=DNS Manager SSL automatic renewal
+After=network-online.target dns-manager-helper.socket
+Requires=dns-manager-helper.socket
+
+[Service]
+Type=oneshot
+User=dnsmanager
+Group=dnsmanager
+Environment=PYTHONPATH=/opt/dns-manager/dns-manager
+Environment=DNS_MANAGER_SSL_SECRET_KEY_FILE=%d/ssl-secret.key
+LoadCredential=ssl-secret.key:/etc/dns-manager/ssl-secret.key
+ExecStart=/usr/local/sbin/dns-manager-ssl-renew
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dns-manager /run/dns-manager

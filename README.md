@@ -1,29 +1,51 @@
 # DNS Manager — v0.6.11
 
-Web-based DNS, reverse-proxy, SSL, firewall and Linux server management platform.
+Web-based DNS, reverse-proxy, SSL, firewall, and server administration for Linux hosts.
 
-**Current version:** `0.6.11`
+**Current release:** `0.6.11` · **Status:** deployment package; validate against your environment before production changes.
 
 ## Features
 
-- Domain-to-upstream mapping with Nginx configuration generation
-- dnsmasq split-DNS support, preview/validate/apply and rollback
-- Role-based access, CSRF protection and audit events
-- SSL and ACME DNS management
-- Managed UFW firewall with multiple source CIDRs and timed rollback
-- Backup and restore
-- Dashboard and System monitoring for CPU, RAM, network, disk, uptime and services; 1-second refresh
+- Domain-to-upstream HTTP/HTTPS mappings with generated Nginx proxy configuration
+- Managed local DNS via dnsmasq; split-DNS deployments with separately managed public DNS
+- Preview → Validate → Apply workflow, revision history and rollback for configuration
+- Authenticated web panel with role-based permissions, CSRF protection, and audit events
+- SSL certificate management and ACME DNS workflows
+- Managed UFW rules with multi-source IPv4/IPv6 CIDRs, validation, confirm and timed rollback
+- Backup creation, upload, download and restore
+- CPU, RAM, disk, uptime, network throughput and service-status monitoring on Dashboard and System pages; 1-second client polling
 
-## Release package
+## Documentation
 
-The full cumulative **v0.6.11** source and documentation package has been prepared, but the complete application source has not yet been uploaded to this repository. Do not treat this repository as deployable until the full source publication is verified.
+- [Installation and upgrades](docs/INSTALLATION.md)
+- [Administration guide](docs/ADMINISTRATION.md)
+- [Architecture and security](docs/ARCHITECTURE.md)
+- [API reference and testing](docs/API_AND_TESTING.md)
+- [Operations and troubleshooting](docs/OPERATIONS.md)
+- [v0.6.11 release notes](docs/RELEASE-0.6.11.md)
+- [Historical design documents](docs/superpowers/)
 
-Documentation included with the prepared package: installation, administration, architecture, API/testing, operations and release notes.
+## Quick start (existing installation upgrades)
 
-## Deployment cautions
+```bash
+# On host, after uploading the release ZIP to /root:
+cd /root
+unzip -q dns-manager-0.6.11-documented.zip -d /tmp/dnsmgr-release
+DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP> \
+  bash /tmp/dnsmgr-release/dns-manager/packaging/install.sh
+curl -fsS http://127.0.0.1:8500/health
+```
 
-Back up the application SQLite database and current UFW rules before upgrades. Review the installer and set the correct `DNS_MANAGER_INTERNAL_PROXY_IP`. Do not commit database files, API credentials, private keys or other production secrets.
+**IMPORTANT:** Replace the placeholder with the correct host address. The installer requires root privileges and modifies system services, Nginx, dnsmasq, and related configuration. Back up database and active firewall rules first; read the installation guide.
+
+## Source tree
+
+`app/` API, models, templates, static UI; `migrations/` Alembic; `privileged/` controlled helper; `packaging/` install/system integration; `tests/` verification; `docs/` runbooks.
+
+## Security
+
+Do not commit `.env`, database files, backup archives, DNS API credentials, TLS private keys, or production configuration secrets. Review generated configurations before Apply. Preserve out-of-band SSH access when changing firewall rules.
 
 ## License
 
-No open-source license has been designated yet.
+No license is included in this release package. Do not assume an open-source license until the project owner chooses one.

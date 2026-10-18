@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+import sys
+
+PROJECT_ROOT = "/opt/dns-manager/dns-manager"
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from privileged.helper_server import serve_forever
+
+
+if __name__ == "__main__":
+    serve_forever()

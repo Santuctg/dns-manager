@@ -1,0 +1,6 @@
+ACME_DNS_ENABLED=false
+ACME_DNS_ZONE=acme-dns.connect3.net.bd
+ACME_DNS_NS=ns1-acme.connect3.net.bd
+ACME_DNS_LISTEN_IP=
+ACME_DNS_PORT=53
+ACME_DNS_TTL=30

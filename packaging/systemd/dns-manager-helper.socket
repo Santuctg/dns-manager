@@ -1,0 +1,13 @@
+[Unit]
+Description=DNS Manager Privileged Helper Socket
+
+[Socket]
+ListenStream=/run/dns-manager/helper.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=dnsmanager
+DirectoryMode=0750
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

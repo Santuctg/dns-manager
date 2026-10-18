@@ -1,0 +1,42 @@
+[Unit]
+Description=DNS Manager FastAPI Service
+After=network-online.target dns-manager-helper.socket
+Wants=network-online.target
+Requires=dns-manager-helper.socket
+
+[Service]
+LoadCredential=ssl-secret.key:/etc/dns-manager/ssl-secret.key
+Environment=DNS_MANAGER_SSL_SECRET_KEY_FILE=%d/ssl-secret.key
+Type=simple
+User=dnsmanager
+Group=dnsmanager
+WorkingDirectory=/opt/dns-manager/dns-manager
+Environment=PYTHONPATH=/opt/dns-manager/dns-manager
+EnvironmentFile=-/etc/dns-manager/dns-manager.env
+ExecStartPre=/usr/bin/python3 -m alembic upgrade head
+ExecStart=/usr/local/bin/gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --workers 2 --bind 127.0.0.1:8500 --timeout 360 --access-logfile - --error-logfile -
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0027
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dns-manager
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/dns-manager /run/dns-manager
+
+[Install]
+WantedBy=multi-user.target

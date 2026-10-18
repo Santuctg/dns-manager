@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from app.database import SessionLocal, get_engine
+from app.models.ssl import SslCertificate
+from app.services.ssl_crypto import decrypt_secret
+from app.services.privileged_helper import PrivilegedHelper
+from app.services.acme_dns_service import verify_delegation
+from app.services.hosted_acme_service import verify_hosted_cname
+from app.services.audit_service import record_audit_event
+
+now=datetime.now(timezone.utc); due=now+timedelta(days=30)
+with SessionLocal(bind=get_engine()) as db:
+    rows=db.scalars(
+        select(SslCertificate)
+        .options(selectinload(SslCertificate.credential),selectinload(SslCertificate.delegation),selectinload(SslCertificate.hosted_acme))
+        .where(SslCertificate.auto_renew.is_(True),SslCertificate.provider.in_(['cloudflare','acme_delegation','acme_dns_hosted']))
+    ).all()
+    for cert in rows:
+        exp=cert.expires_at
+        if exp is not None and exp.tzinfo is None: exp=exp.replace(tzinfo=timezone.utc)
+        if exp is not None and exp>due: continue
+        try:
+            token=None
+            if cert.provider=='cloudflare':
+                if cert.credential is None: raise RuntimeError('missing Cloudflare credential')
+                token=decrypt_secret(cert.credential.token_ciphertext)
+            elif cert.provider=='acme_delegation':
+                delegation=cert.delegation
+                if delegation is None or not delegation.verified:
+                    raise RuntimeError('ACME delegation is not verified')
+                check=verify_delegation(delegation.challenge_domain,delegation.delegated_fqdn)
+                if not check.get('verified'):
+                    delegation.verified=False
+                    delegation.verified_at=None
+                    delegation.last_verification_error=check.get('error') or 'Delegation verification failed'
+                    cert.auto_renew=False
+                    raise RuntimeError('ACME delegation changed')
+            elif cert.provider=='acme_dns_hosted':
+                cred=cert.hosted_acme
+                if cred is None or not cred.verified:
+                    raise RuntimeError('Hosted ACME-DNS CNAME is not verified')
+                check=verify_hosted_cname(cred.challenge_domain,cred.fulldomain)
+                if not check.get('verified'):
+                    cred.verified=False; cred.verified_at=None
+                    cred.last_verification_error=check.get('error') or 'CNAME verification failed'
+                    cert.auto_renew=False
+                    raise RuntimeError('Hosted ACME-DNS CNAME changed')
+            PrivilegedHelper().ssl_renew(domain=cert.domain,provider=cert.provider,token=token,force=False)
+            cert.last_renewal_at=now; cert.last_renewal_status='SUCCESS'; cert.last_error=None
+            if cert.provider in {'acme_delegation','acme_dns_hosted'}:
+                action='HOSTED_ACME_RENEWAL_SUCCESS' if cert.provider=='acme_dns_hosted' else 'ACME_RENEWAL_SUCCESS'
+                record_audit_event(db,username='system:ssl-renew',action=action,object_type='ssl_certificate',object_id=cert.domain)
+        except Exception:
+            cert.last_renewal_at=now; cert.last_renewal_status='FAILED'; cert.last_error='Automatic renewal failed'
+            if cert.provider in {'acme_delegation','acme_dns_hosted'}:
+                action='HOSTED_ACME_RENEWAL_FAILED' if cert.provider=='acme_dns_hosted' else 'ACME_RENEWAL_FAILED'
+                record_audit_event(db,username='system:ssl-renew',action=action,object_type='ssl_certificate',object_id=cert.domain,status='failed',error_message='Automatic renewal failed')
+        db.commit()

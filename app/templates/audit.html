@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="content-stack"><form class="toolbar card" data-audit-filters><div class="toolbar-group"><input name="username" placeholder="Username"><input name="action" placeholder="Action"><select name="status"><option value="">Any status</option><option value="success">Success</option><option value="failed">Failed</option></select></div><button class="btn btn-secondary" type="submit">Filter</button></form><section class="card"><div class="table-wrap"><table class="audit-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Object</th><th>Source</th><th>Status</th></tr></thead><tbody data-audit-table><tr><td colspan="6" class="muted">Loading audit events…</td></tr></tbody></table></div></section></section>
+{% endblock %}

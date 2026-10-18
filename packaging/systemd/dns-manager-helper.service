@@ -1,0 +1,34 @@
+[Unit]
+Description=DNS Manager Privileged Helper
+Requires=dns-manager-helper.socket
+After=dns-manager-helper.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/libexec/dns-manager-helper-server
+Restart=on-failure
+RestartSec=2
+UMask=0027
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dns-manager-helper
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=false
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/dns-manager /var/lib/dns-manager/acme-dns /var/lib/dns-manager/firewall /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd
+
+[Install]
+WantedBy=multi-user.target

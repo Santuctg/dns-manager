@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card" data-host-monitoring data-monitoring-mode="compact" aria-label="Server monitoring">
+  <div class="card-head"><div><p class="eyebrow">System monitoring</p><h2>Server resources</h2><p class="muted small" data-monitor-status role="status">Loading live measurements…</p></div><span class="badge" data-monitor-time>Waiting for sample</span></div>
+  <div class="card-grid card-grid-3 resource-metrics">
+    <article class="metric-card"><span>CPU</span><strong data-monitor="cpu">—</strong><small data-monitor="load">Load unavailable</small><progress data-monitor-progress="cpu" value="0" max="100" aria-label="CPU usage"></progress></article>
+    <article class="metric-card"><span>RAM</span><strong data-monitor="memory">—</strong><small data-monitor="memory-detail">—</small><progress data-monitor-progress="memory" value="0" max="100" aria-label="Memory usage"></progress></article>
+    <article class="metric-card"><span>Network RX / TX</span><strong data-monitor="network">Sampling…</strong><label class="monitor-network-select">Interface <select data-monitor-interface aria-label="Network interface"></select></label></article>
+    <article class="metric-card"><span>Disk /</span><strong data-monitor="disk">—</strong><small data-monitor="disk-detail">—</small><progress data-monitor-progress="disk" value="0" max="100" aria-label="Disk usage"></progress></article>
+    <article class="metric-card"><span>Host uptime</span><strong data-monitor="uptime">—</strong><small data-monitor="boot">—</small></article>
+    <article class="metric-card"><span>Services</span><strong data-monitor="services">—</strong><small data-monitor="service-summary">—</small></article>
+  </div>
+  <div class="monitor-details" data-monitor-details><h3>Interface counters</h3><div class="table-wrap"><table><thead><tr><th>Interface</th><th>State</th><th>RX</th><th>TX</th></tr></thead><tbody data-monitor-interfaces><tr><td colspan="4">Sampling…</td></tr></tbody></table></div><h3>Filesystems</h3><div data-monitor-disks>Loading…</div><h3>Service status</h3><div data-monitor-services>Loading…</div></div>
+</section>
+
+<section class="content-stack" data-dashboard-status>
+  <div class="card-grid card-grid-4">
+    <article class="metric-card"><span>DNS service</span><strong data-metric="dnsmasq">…</strong></article>
+    <article class="metric-card"><span>Nginx</span><strong data-metric="nginx">…</strong></article>
+    <article class="metric-card"><span>Mappings</span><strong data-metric="mappings">…</strong></article>
+    <article class="metric-card"><span>Pending</span><strong data-metric="pending">…</strong></article>
+  </div>
+  <div class="two-column">
+    <section class="card"><div class="card-head"><div><p class="eyebrow">Reachability</p><h2>Backend health</h2></div><button class="btn btn-secondary" data-action="refresh-dashboard">Refresh</button></div><div data-backend-summary class="status-list"><p class="muted">Loading backends…</p></div></section>
+    <section class="card"><div class="card-head"><div><p class="eyebrow">Activity</p><h2>Recent audit events</h2></div><a class="btn btn-ghost" href="/app/audit">View all</a></div><div data-recent-audit class="table-wrap"><p class="muted">Loading audit…</p></div></section>
+  </div>
+</section>
+{% endblock %}

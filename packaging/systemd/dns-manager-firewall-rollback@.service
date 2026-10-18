@@ -1,0 +1,16 @@
+[Unit]
+Description=DNS Manager emergency firewall rollback %i
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/bin/sleep 120
+ExecStart=/usr/local/libexec/dns-manager-firewall-rollback %i
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/dns-manager/firewall /etc/ufw /etc/default/ufw /lib/ufw /run

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · DNS Manager</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="app-shell" data-page="{{ page }}" data-role="{{ role_name }}" data-can-rollback="{{ 'true' if can_config_rollback else 'false' }}">
+  <aside class="sidebar" aria-label="Primary navigation">
+    <a class="brand" href="/app/dashboard"><span class="brand-mark">DN</span><span>DNS Manager</span></a>
+    <nav class="nav-list">
+      <a class="nav-item {{ 'active' if page == 'dashboard' else '' }}" href="/app/dashboard">Dashboard</a>
+      <a class="nav-item {{ 'active' if page == 'mappings' else '' }}" href="/app/mappings">Mappings</a>
+      {% if can_user_view %}<a class="nav-item {{ 'active' if page == 'users' else '' }}" href="/app/users">Users</a>{% endif %}
+      {% if can_role_view %}<a class="nav-item {{ 'active' if page == 'roles' else '' }}" href="/app/roles">Roles</a>{% endif %}
+      <a class="nav-item {{ 'active' if page == 'audit' else '' }}" href="/app/audit">Audit</a>
+      <a class="nav-item {{ 'active' if page == 'system' else '' }}" href="/app/system">System</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="identity"><strong>{{ user.username }}</strong><span>{{ role_name.replace('_', ' ')|title }}</span></div>
+      <button class="btn btn-ghost btn-block" type="button" data-action="logout">Sign out</button>
+    </div>
+  </aside>
+  <main class="main-panel">
+    <header class="topbar">
+      <div><p class="eyebrow">DNS Manager</p><h1>{{ page_title }}</h1></div>
+      <div class="topbar-actions"><span class="status-dot" data-global-status></span><span data-global-status-text>Checking services…</span></div>
+    </header>
+    <div class="flash" data-flash hidden></div>
+    <div class="page-content">{% block content %}{% endblock %}</div>
+  </main>
+  <dialog class="modal action-modal" data-action-modal data-state="info" aria-labelledby="action-modal-title" aria-describedby="action-modal-description">
+    <div class="action-modal-head">
+      <div class="action-modal-heading"><span class="action-modal-icon" data-action-modal-icon>i</span><div><p class="eyebrow" data-action-modal-kicker>DNS Manager action</p><h2 id="action-modal-title" data-action-modal-title>Action</h2></div></div>
+      <button class="icon-btn" type="button" data-action-modal-close aria-label="Close">×</button>
+    </div>
+    <div class="action-modal-body" id="action-modal-description" data-action-modal-body></div>
+    <label class="action-modal-input" data-action-modal-input-wrap hidden><span data-action-modal-input-label>Value</span><input data-action-modal-input autocomplete="off"></label>
+    <div class="action-modal-progress" data-action-modal-spinner role="status" aria-live="polite" hidden><span class="action-spinner" aria-hidden="true"></span><span>Please wait…</span></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" data-action-modal-cancel hidden>Cancel</button>
+      <button class="btn btn-primary" type="button" data-action-modal-confirm>Close</button>
+    </div>
+  </dialog>
+  <script>window.DNS_MANAGER_PAGE = {{ page|tojson }};</script>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
