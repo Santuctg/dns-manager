@@ -16,9 +16,9 @@ Web-based DNS, reverse-proxy, SSL, firewall and Linux server management platform
 
 ## Release package
 
-The full cumulative **v0.6.11** source and documentation package is prepared for publication. The repository will be populated with the complete source tree in the next upload step.
+The full cumulative **v0.6.11** source and documentation package has been prepared, but the complete application source has not yet been uploaded to this repository. Do not treat this repository as deployable until the full source publication is verified.
 
-Documentation included with the package: installation, administration, architecture, API/testing, operations and release notes.
+Documentation included with the prepared package: installation, administration, architecture, API/testing, operations and release notes.
 
 ## Deployment cautions
 
