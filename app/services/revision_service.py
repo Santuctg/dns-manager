@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from app.models.mapping import Mapping
 from app.models.revision import ConfigRevision
 
-VALID_STATUSES = {"generated", "validated", "active", "failed", "rolled_back"}
+# "superseded": was active until a newer revision was applied (a rollback target).
+# "rolled_back": was undone by a rollback and must not be restored by another one.
+VALID_STATUSES = {"generated", "validated", "active", "failed", "superseded", "rolled_back"}
 
 
 def _utcnow() -> datetime:
@@ -80,7 +82,7 @@ def mark_revision_status(db: Session, revision: ConfigRevision, status: str) -> 
     if status == "active":
         for current in db.scalars(select(ConfigRevision).where(ConfigRevision.status == "active")).all():
             if current.id != revision.id:
-                current.status = "rolled_back"
+                current.status = "superseded"
     revision.status = status
     db.commit()
     db.refresh(revision)

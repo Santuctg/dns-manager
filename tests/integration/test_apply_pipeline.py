@@ -199,13 +199,16 @@ def test_rollback_revision_restores_previous_revision_status(tmp_path):
         db,
         revision_id=second.id,
         helper=helper,
+        generated_dir=tmp_path / "generated",
         lock_path=tmp_path / "apply.lock",
     )
 
     assert rolled_back_to.id == first.id
     assert second.status == "rolled_back"
     assert first.status == "active"
-    assert helper.calls[-2:] == ["rollback", "status"]
+    # The previous revision's stored config is re-installed, not the helper's
+    # single known-good copy.
+    assert helper.calls[-3:] == ["validate", "apply", "status"]
 
 
 def test_preview_api_requires_explicit_internal_proxy_ip(monkeypatch):
@@ -296,3 +299,121 @@ def test_057_preview_omits_http_mapping_when_issued_ssl_redirect_owns_domain():
     preview = preview_config(db, internal_proxy_ip="157.15.20.132")
     assert "server_name vm226.connect3.net.bd;" not in preview["nginx_config"]
     assert "proxy_pass https://192.168.255.226:443;" not in preview["nginx_config"]
+
+
+class LiveHelper(FakeHelper):
+    """Models the live files: apply installs what is staged, rollback restores the single known-good copy."""
+
+    def __init__(self, generated_dir, **kwargs):
+        super().__init__(**kwargs)
+        self.generated_dir = generated_dir
+        self.live = None
+        self.known_good = None
+
+    def apply(self):
+        result = super().apply()
+        self.known_good = self.live
+        self.live = (self.generated_dir / "nginx.conf").read_text()
+        return result
+
+    def rollback(self):
+        result = super().rollback()
+        self.live = self.known_good
+        return result
+
+
+def _apply_port(db, mapping, port, helper, tmp_path):
+    mapping.upstream_port = port
+    mapping.version += 1
+    db.commit()
+    return apply_pending_config(
+        db, internal_proxy_ip="192.168.128.2", created_by=1, helper=helper,
+        generated_dir=tmp_path / "generated", lock_path=tmp_path / "apply.lock",
+    )
+
+
+def _rollback(db, revision, helper, tmp_path):
+    return rollback_revision(
+        db, revision_id=revision.id, helper=helper,
+        generated_dir=tmp_path / "generated", lock_path=tmp_path / "apply.lock",
+    )
+
+
+def test_consecutive_rollbacks_keep_live_config_matching_the_active_revision(tmp_path):
+    db = make_db()
+    mapping = add_mapping(db)
+    helper = LiveHelper(tmp_path / "generated")
+    first = _apply_port(db, mapping, 8001, helper, tmp_path)
+    second = _apply_port(db, mapping, 8002, helper, tmp_path)
+    third = _apply_port(db, mapping, 8003, helper, tmp_path)
+    assert (first.status, second.status, third.status) == ("superseded", "superseded", "active")
+
+    restored = _rollback(db, third, helper, tmp_path)
+    assert restored.id == second.id and "8002" in helper.live
+    restored = _rollback(db, second, helper, tmp_path)
+    assert restored.id == first.id and "8001" in helper.live
+    assert get_active_revision(db).id == first.id
+    assert helper.live == first.nginx_config
+
+
+def test_rollback_never_restores_a_revision_that_was_itself_rolled_back(tmp_path):
+    db = make_db()
+    mapping = add_mapping(db)
+    helper = LiveHelper(tmp_path / "generated")
+    good = _apply_port(db, mapping, 8001, helper, tmp_path)
+    bad = _apply_port(db, mapping, 8002, helper, tmp_path)
+    _rollback(db, bad, helper, tmp_path)
+    assert bad.status == "rolled_back"
+    newer = _apply_port(db, mapping, 8003, helper, tmp_path)
+
+    restored = _rollback(db, newer, helper, tmp_path)
+    assert restored.id == good.id
+    assert helper.live == good.nginx_config
+    assert bad.status == "rolled_back"
+
+
+def test_failed_rollback_restores_live_config_and_leaves_statuses_unchanged(tmp_path):
+    db = make_db()
+    mapping = add_mapping(db)
+    helper = LiveHelper(tmp_path / "generated")
+    first = _apply_port(db, mapping, 8001, helper, tmp_path)
+    second = _apply_port(db, mapping, 8002, helper, tmp_path)
+    helper.fail_health = True
+
+    with pytest.raises(RuntimeError, match="post-rollback health check failed"):
+        _rollback(db, second, helper, tmp_path)
+    assert helper.calls[-1] == "rollback"
+    assert helper.live == second.nginx_config
+    assert (first.status, second.status) == ("superseded", "active")
+
+
+def test_rollback_falls_back_to_legacy_rolled_back_history(tmp_path):
+    db = make_db()
+    mapping = add_mapping(db)
+    helper = LiveHelper(tmp_path / "generated")
+    first = _apply_port(db, mapping, 8001, helper, tmp_path)
+    second = _apply_port(db, mapping, 8002, helper, tmp_path)
+    first.status = "rolled_back"  # how replaced revisions were recorded before "superseded"
+    db.commit()
+
+    assert _rollback(db, second, helper, tmp_path).id == first.id
+    assert helper.live == first.nginx_config
+
+
+def test_validate_waits_for_the_apply_lock(tmp_path):
+    from app.services.apply_service import validate_pending_config
+
+    db = make_db()
+    add_mapping(db)
+    helper = FakeHelper()
+    lock_path = tmp_path / "apply.lock"
+    lock_path.touch()
+    with lock_path.open("a+") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ConfigLockedError):
+            validate_pending_config(
+                db, internal_proxy_ip="192.168.128.2", created_by=1, helper=helper,
+                generated_dir=tmp_path / "generated", lock_path=lock_path,
+            )
+    assert helper.calls == []
+    assert not (tmp_path / "generated" / "nginx.conf").exists()
