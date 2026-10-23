@@ -73,3 +73,32 @@ def test_multi_source_world_open_in_second_source_requires_confirmation():
 def test_multi_source_rejects_newline_and_comma():
     for bad in ('203.0.113.4/32\n','203.0.113.4/32,198.51.100.0/24'):
         with pytest.raises(ValueError): normalize_rule(rule(source_cidrs=[bad]))
+
+
+def test_earlier_deny_rule_on_ssh_port_blocks_the_safe_path():
+    deny=rule(id=2,action='deny',source_cidr='0.0.0.0/0',sort_key=5,comment='block-all-ssh')
+    allow=rule(id=1,source_cidr='203.0.113.0/24',sort_key=10)
+    v=validate_policy(P(),[allow,deny],ssh_port=2222,source_ip='203.0.113.4')
+    assert not v.valid and any('block-all-ssh' in e for e in v.errors)
+    # The same deny ordered after the allow is harmless: the allow matches first.
+    later=rule(id=2,action='deny',source_cidr='0.0.0.0/0',sort_key=50)
+    assert validate_policy(P(),[allow,later],ssh_port=2222,source_ip='203.0.113.4').valid
+
+
+def test_deny_overlapping_only_part_of_management_range_is_unsafe():
+    deny=rule(id=2,action='deny',source_cidr='10.0.0.128/25',sort_key=5)
+    allow=rule(id=1,source_cidr='10.0.0.0/24',sort_key=10)
+    v=validate_policy(P(),[deny,allow],ssh_port=2222,management_cidr='10.0.0.0/24')
+    assert not v.valid
+    assert validate_policy(P(),[deny,allow],ssh_port=2222,management_cidr='10.0.0.0/25').valid
+
+
+def test_deny_rules_on_other_ports_protocols_or_disabled_do_not_count():
+    allow=rule(id=1,source_cidr='203.0.113.0/24',sort_key=10)
+    others=[rule(id=2,action='deny',source_cidr='0.0.0.0/0',sort_key=1,port_start=443),
+            rule(id=3,action='deny',source_cidr='0.0.0.0/0',sort_key=2,protocol='udp'),
+            rule(id=4,action='deny',source_cidr='0.0.0.0/0',sort_key=3,enabled=False),
+            rule(id=5,action='deny',source_cidr='::/0',sort_key=4)]
+    assert validate_policy(P(),[allow,*others],ssh_port=2222,source_ip='203.0.113.4').valid
+    both=rule(id=6,action='deny',source_cidr='0.0.0.0/0',sort_key=1,protocol='both')
+    assert not validate_policy(P(),[allow,both],ssh_port=2222,source_ip='203.0.113.4').valid
