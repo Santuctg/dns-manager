@@ -100,3 +100,23 @@ def test_multi_source_rejects_invalid_sources_and_preserves_draft(monkeypatch):
         assert updated.status_code==200,updated.text
         assert updated.json()['source_cidrs']==['203.0.113.4/32']
     finally: app.dependency_overrides.clear()
+
+def test_late_confirm_after_emergency_rollback_returns_conflict_and_marks_revision_rolled_back(monkeypatch):
+    import app.api.firewall as fw
+    from app.models.firewall import FirewallRevision
+    class RolledBackHelper(FakeHelper):
+        def firewall_confirm(self,token): return {'confirmed':False,'rolled_back':True}
+    monkeypatch.setattr(fw,'PrivilegedHelper',lambda:RolledBackHelper())
+    c=env();h={'X-CSRF-Token':'csrf-token'}
+    try:
+        c.put('/api/v1/firewall/policy',headers=h,json={'enabled':False,'default_incoming':'deny','default_outgoing':'allow'})
+        assert c.post('/api/v1/firewall/apply',headers=h,json={}).status_code==200
+        r=c.post('/api/v1/firewall/confirm',headers=h)
+        assert r.status_code==409 and 'rolled back' in r.json()['detail']
+        policy=c.get('/api/v1/firewall/policy').json()
+        assert policy['pending_revision'] is None and policy['applied_revision'] != policy['desired_revision']
+        db=next(app.dependency_overrides[get_db]())
+        assert db.query(FirewallRevision).one().status=='rolled_back'
+        # A retry is not misreported as confirmed.
+        assert c.post('/api/v1/firewall/confirm',headers=h).json()['revision']==policy['applied_revision']
+    finally: app.dependency_overrides.clear()

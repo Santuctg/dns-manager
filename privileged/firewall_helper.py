@@ -1,16 +1,32 @@
 from __future__ import annotations
-import json, os, re, secrets, shlex, subprocess, tempfile
+import fcntl, json, os, re, secrets, shlex, subprocess, tempfile
+from contextlib import contextmanager
 from ipaddress import ip_network
 from pathlib import Path
 from typing import Callable
+from privileged.helper_lib import PRIVATE_ROOT, ensure_private_dir
 
 UFW='/usr/sbin/ufw'; SYSTEMCTL='/usr/bin/systemctl'; SS='/usr/bin/ss'; SSHD='/usr/sbin/sshd'
-STATE_DIR=Path('/var/lib/dns-manager/firewall')
+STATE_DIR=PRIVATE_ROOT/'firewall'
 ROLLBACK_UNIT='dns-manager-firewall-rollback@{}.service'
+_TOKEN_RE=re.compile(r'[0-9a-f]{32}')
 
 class FirewallHelperOps:
     def __init__(self, runner:Callable|None=None, state_dir:Path=STATE_DIR):
         self.runner=runner or subprocess.run; self.state_dir=Path(state_dir)
+    def _state(self):
+        return ensure_private_dir(self.state_dir)
+    @contextmanager
+    def _locked(self):
+        # Serialises confirm with the emergency rollback, which runs in another process.
+        with open(self._state()/'.lock','a') as fp:
+            fcntl.flock(fp.fileno(),fcntl.LOCK_EX)
+            try: yield
+            finally: fcntl.flock(fp.fileno(),fcntl.LOCK_UN)
+    @staticmethod
+    def _token(token):
+        if not isinstance(token,str) or not _TOKEN_RE.fullmatch(token): raise ValueError('invalid firewall rollback token')
+        return token
     def _run(self, argv, timeout=15):
         return self.runner(argv,text=True,capture_output=True,check=False,timeout=timeout)
     def _ufw(self,*args,timeout=15):
@@ -95,9 +111,8 @@ class FirewallHelperOps:
             if m and 'DNSMGR:' in m.group(2): out.append(int(m.group(1)))
         return sorted(out,reverse=True)
     def _snapshot(self,token,payload):
-        self.state_dir.mkdir(parents=True,exist_ok=True)
         current={'verbose':self._status_text(),'numbered':self._numbered_text(),'managed_manifest':self._extract_managed(),'pending_payload':payload}
-        path=self.state_dir/f'{token}.json'; tmp=path.with_suffix('.tmp'); tmp.write_text(json.dumps(current,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,path); return path
+        path=self._state()/f'{token}.json'; tmp=path.with_suffix('.tmp'); tmp.write_text(json.dumps(current,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,path); return path
     def _extract_managed(self):
         out=[]
         for line in self._numbered_text().splitlines():
@@ -143,7 +158,7 @@ class FirewallHelperOps:
             raise
     def _capture_managed_payload(self):
         # deterministic helper-owned backup sourced from sidecar manifest if available
-        manifest=self.state_dir/'current-managed.json'
+        manifest=self._state()/'current-managed.json'
         if manifest.exists():
             try:return json.loads(manifest.read_text())
             except Exception: pass
@@ -153,9 +168,9 @@ class FirewallHelperOps:
         st=self.status()
         return {'enabled':bool(st.get('active')),'default_incoming':st.get('default_incoming') or 'deny','default_outgoing':st.get('default_outgoing') or 'allow','operations':[]}
     def _write_current_manifest(self,payload):
-        self.state_dir.mkdir(parents=True,exist_ok=True); p=self.state_dir/'current-managed.json'; tmp=p.with_suffix('.tmp'); tmp.write_text(json.dumps(payload,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,p)
+        p=self._state()/'current-managed.json'; tmp=p.with_suffix('.tmp'); tmp.write_text(json.dumps(payload,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,p)
     def _write_rollback_manifest(self,token,before):
-        p=self.state_dir/f'{token}.rollback.json'; tmp=p.with_suffix('.tmp'); tmp.write_text(json.dumps(before,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,p)
+        p=self._state()/f'{token}.rollback.json'; tmp=p.with_suffix('.tmp'); tmp.write_text(json.dumps(before,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,p)
     def _restore_manifest(self,manifest):
         self._delete_managed()
         self._ufw('default',manifest.get('default_incoming','deny'),'incoming'); self._ufw('default',manifest.get('default_outgoing','allow'),'outgoing')
@@ -164,17 +179,35 @@ class FirewallHelperOps:
         else: self._ufw('disable')
         self._write_current_manifest(manifest)
     def confirm(self,token):
+        token=self._token(token)
+        with self._locked():
+            if (self._state()/f'{token}.rolled-back').exists():
+                # Too late: the previous rules are back in force. Never record the
+                # rolled-back policy as current.
+                return {'confirmed':False,'rolled_back':True}
+            snap=self._state()/f'{token}.json'
+            if not snap.exists(): return {'confirmed':True,'already_confirmed':True}
+            data=json.loads(snap.read_text()); payload=data.get('pending_payload') or {}; self._write_current_manifest(payload)
+            # Keep the rollback manifest as last-known-good for explicit rollback;
+            # removing the pending snapshot is what tells auto_rollback to stand down.
+            snap.unlink()
         self._run([SYSTEMCTL,'stop',ROLLBACK_UNIT.format(token)])
-        snap=self.state_dir/f'{token}.json'
-        if not snap.exists(): return {'confirmed':True,'already_confirmed':True}
-        data=json.loads(snap.read_text()); payload=data.get('pending_payload') or {}; self._write_current_manifest(payload)
-        # Keep the rollback manifest as last-known-good for explicit rollback;
-        # only remove the pending metadata after cancelling the emergency timer.
-        try: snap.unlink()
-        except FileNotFoundError: pass
         return {'confirmed':True}
-    def rollback(self,token):
-        rb=self.state_dir/f'{token}.rollback.json'
+    def _rollback_locked(self,token):
+        rb=self._state()/f'{token}.rollback.json'
         if not rb.exists(): raise RuntimeError('rollback snapshot not found')
-        self._restore_manifest(json.loads(rb.read_text())); self._run([SYSTEMCTL,'stop',ROLLBACK_UNIT.format(token)])
+        self._restore_manifest(json.loads(rb.read_text()))
+        (self._state()/f'{token}.json').unlink(missing_ok=True)
+        marker=self._state()/f'{token}.rolled-back'; marker.write_text(''); os.chmod(marker,0o600)
+    def rollback(self,token):
+        token=self._token(token)
+        with self._locked(): self._rollback_locked(token)
+        self._run([SYSTEMCTL,'stop',ROLLBACK_UNIT.format(token)])
+        return {'rolled_back':True}
+    def auto_rollback(self,token):
+        """Emergency timer entry point: revert only if the change is still unconfirmed."""
+        token=self._token(token)
+        with self._locked():
+            if not (self._state()/f'{token}.json').exists(): return {'rolled_back':False}
+            self._rollback_locked(token)
         return {'rolled_back':True}

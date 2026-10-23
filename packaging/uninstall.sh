@@ -26,9 +26,9 @@ rm -rf /opt/dns-manager/dns-manager
 systemctl daemon-reload
 
 if $PURGE_DATA; then
-  rm -rf /var/lib/dns-manager /etc/dns-manager
+  rm -rf /var/lib/dns-manager /var/lib/dns-manager-helper /etc/dns-manager
 else
-  echo "Preserved /var/lib/dns-manager and /etc/dns-manager (use --purge-data to remove)."
+  echo "Preserved /var/lib/dns-manager, /var/lib/dns-manager-helper and /etc/dns-manager (use --purge-data to remove)."
 fi
 
 rm -f /usr/local/libexec/dns-manager-acme-dns-hook

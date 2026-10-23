@@ -13,6 +13,7 @@ from typing import Callable
 
 from cryptography import x509
 from app.schemas.mapping import validate_upstream_host
+from privileged.helper_lib import PRIVATE_ROOT, ensure_private_dir
 
 _DOMAIN_RE=re.compile(r'^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$',re.I)
 _LOCKS: dict[str, threading.Lock]={}
@@ -28,7 +29,7 @@ def _run_default(argv, **kwargs): return subprocess.run(argv,text=True,capture_o
 
 
 class SslHelperOps:
-    def __init__(self, *, live_nginx: Path | None=None, nginx_conf_dir: Path=Path('/etc/nginx/conf.d'), letsencrypt_root: Path=Path('/etc/letsencrypt'), work_root: Path=Path('/var/lib/dns-manager/acme'), runner:Callable=_run_default):
+    def __init__(self, *, live_nginx: Path | None=None, nginx_conf_dir: Path=Path('/etc/nginx/conf.d'), letsencrypt_root: Path=Path('/etc/letsencrypt'), work_root: Path=PRIVATE_ROOT/'acme', runner:Callable=_run_default):
         self.live_nginx=Path(live_nginx) if live_nginx is not None else None; self.nginx_conf_dir=Path(nginx_conf_dir); self.letsencrypt_root=Path(letsencrypt_root); self.work_root=Path(work_root); self.runner=runner
 
     def _live_path(self, domain: str) -> Path:
@@ -51,6 +52,10 @@ class SslHelperOps:
 
     def _apply_live_path(self, domain: str) -> Path:
         return self._legacy_live_path(domain) or self._live_path(domain)
+
+    def _state_dir(self, d: str) -> Path:
+        ensure_private_dir(self.work_root)
+        return ensure_private_dir(self.work_root/d)
 
     def _run(self, argv, timeout=120):
         r=self.runner(list(argv),check=False,timeout=timeout)
@@ -208,8 +213,7 @@ class SslHelperOps:
 
     def _cloudflare_run(self, domain, token, *, dry_run=False, force=False):
         d=_domain(domain)
-        self.work_root.mkdir(parents=True,exist_ok=True)
-        fd,path=tempfile.mkstemp(prefix='cf-',dir=self.work_root)
+        fd,path=tempfile.mkstemp(prefix='cf-',dir=ensure_private_dir(self.work_root))
         try:
             os.write(fd, f'dns_cloudflare_api_token = {token}\n'.encode()); os.close(fd); os.chmod(path,0o600)
             argv=['/usr/bin/certbot','certonly','--non-interactive','--agree-tos','--register-unsafely-without-email','--dns-cloudflare','--dns-cloudflare-credentials',path,'-d',d]
@@ -273,8 +277,7 @@ class SslHelperOps:
         if provider=='acme_dns_hosted':
             return self._hosted_run(d)
         if provider=='manual':
-            state=self.work_root/d
-            state.mkdir(parents=True,exist_ok=True)
+            state=self._state_dir(d)
             for name in ('challenge.json','continue'):
                 (state/name).unlink(missing_ok=True)
             env=os.environ.copy(); env['DNS_MANAGER_ACME_STATE_DIR']=str(self.work_root)
@@ -283,13 +286,13 @@ class SslHelperOps:
         raise ValueError('unsupported DNS provider')
 
     def ssl_manual_status(self, domain):
-        d=_domain(domain); path=self.work_root/d/'challenge.json'
+        d=_domain(domain); path=self._state_dir(d)/'challenge.json'
         if not path.is_file(): return {'domain':d,'status':'PENDING'}
         import json
         return json.loads(path.read_text())
 
     def ssl_manual_continue(self, domain):
-        d=_domain(domain); state=self.work_root/d
+        d=_domain(domain); state=self._state_dir(d)
         if not (state/'challenge.json').is_file(): raise RuntimeError('manual DNS challenge is not ready')
         (state/'continue').write_text('continue\n')
         return {'domain':d,'continued':True}

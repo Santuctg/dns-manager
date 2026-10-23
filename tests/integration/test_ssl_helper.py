@@ -236,3 +236,15 @@ def test_ssl_management_vhost_still_defaults_to_local_app():
     text=SslHelperOps()._nginx_text('dns.connect3.net.bd',True,upstream=None)
     assert 'proxy_pass http://127.0.0.1:8500;' in text
     assert 'proxy_read_timeout 360s;' in text
+
+
+def test_manual_dns_state_is_refused_when_work_dir_is_not_private(tmp_path):
+    import pytest
+    service_owned=tmp_path/'service-owned'; service_owned.mkdir()
+    (tmp_path/'work').symlink_to(service_owned)
+    ops=SslHelperOps(letsencrypt_root=tmp_path/'le',work_root=tmp_path/'work',runner=lambda *a,**k:None)
+    with pytest.raises(RuntimeError):
+        ops.ssl_manual_continue('dns.example.com')
+    with pytest.raises(RuntimeError):
+        ops.ssl_manual_status('dns.example.com')
+    assert not (service_owned/'dns.example.com').exists()

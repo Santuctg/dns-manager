@@ -121,3 +121,86 @@ def test_multi_source_apply_confirm_and_rollback_restore_exact_old_manifest(tmp_
     new_calls=runner.calls[start:]
     assert any(c[0]==UFW and '198.51.100.0/24' in c and 'DNSMGR:10:0:tcp' in c for c in new_calls)
     assert any(c[0]==UFW and '203.0.113.4/32' in c and 'DNSMGR:9:tcp' in c for c in new_calls)
+
+
+class StatefulUfw:
+    """Minimal UFW model: tracks the managed rule list so rollback effects are observable."""
+    def __init__(self): self.calls=[]; self.rules=[]
+    def __call__(self,argv,**kw):
+        self.calls.append(argv)
+        if argv[:3]==[UFW,'status','verbose']: return R(out='Status: active\nDefault: deny (incoming), allow (outgoing)\n')
+        if argv[:3]==[UFW,'status','numbered']: return R(out=''.join(f'[{i+1}] {r}\n' for i,r in enumerate(self.rules)))
+        if argv[:3]==[UFW,'--force','delete']: self.rules.pop(int(argv[3])-1)
+        elif len(argv)>1 and argv[0]==UFW and argv[1] in ('allow','deny'): self.rules.append(' '.join(argv[1:]))
+        return R()
+
+OLD={'enabled':True,'default_incoming':'deny','default_outgoing':'allow','operations':[]}
+NEW={'enabled':True,'default_incoming':'deny','default_outgoing':'allow','revision':2,'operations':[
+    {'action':'allow','protocol':'tcp','port':'443','source':'10.0.0.0/8','comment':'DNSMGR:1:tcp'}]}
+
+def _applied(tmp_path):
+    import json
+    ufw=StatefulUfw(); ops=FirewallHelperOps(runner=ufw,state_dir=tmp_path)
+    (tmp_path/'current-managed.json').write_text(json.dumps(OLD))
+    token=ops.apply(NEW)['rollback_token']
+    return ufw,ops,token
+
+def test_confirm_after_emergency_rollback_is_refused_and_does_not_record_the_new_policy(tmp_path):
+    import json
+    ufw,ops,token=_applied(tmp_path)
+    assert ops.auto_rollback(token)=={'rolled_back':True}
+    assert ufw.rules==[]
+
+    assert ops.confirm(token)=={'confirmed':False,'rolled_back':True}
+    assert json.loads((tmp_path/'current-managed.json').read_text())==OLD
+    assert ufw.rules==[]
+
+def test_emergency_rollback_after_confirm_is_a_no_op(tmp_path):
+    import json
+    ufw,ops,token=_applied(tmp_path)
+    assert ops.confirm(token)=={'confirmed':True}
+    assert [SYSTEMCTL,'stop',f'dns-manager-firewall-rollback@{token}.service'] in ufw.calls
+    rules=list(ufw.rules)
+
+    # Even if stopping the timer failed, the late timer must not undo a confirmed change.
+    assert ops.auto_rollback(token)=={'rolled_back':False}
+    assert ufw.rules==rules
+    assert json.loads((tmp_path/'current-managed.json').read_text())['operations']==NEW['operations']
+    assert ops.confirm(token)=={'confirmed':True,'already_confirmed':True}
+
+def test_explicit_rollback_of_pending_change_blocks_later_confirm(tmp_path):
+    ufw,ops,token=_applied(tmp_path)
+    assert ops.rollback(token)=={'rolled_back':True}
+    assert ops.confirm(token)=={'confirmed':False,'rolled_back':True}
+    assert ops.auto_rollback(token)=={'rolled_back':False}
+
+def test_confirm_waits_for_an_in_progress_emergency_rollback(tmp_path):
+    import threading, time
+    ufw,ops,token=_applied(tmp_path)
+    entered=threading.Event(); release=threading.Event()
+    original=ops._restore_manifest
+    def slow_restore(manifest):
+        entered.set(); release.wait(5); original(manifest)
+    roller=FirewallHelperOps(runner=ufw,state_dir=tmp_path); roller._restore_manifest=slow_restore
+    t=threading.Thread(target=roller.auto_rollback,args=(token,)); t.start()
+    assert entered.wait(5)
+    result={}
+    c=threading.Thread(target=lambda: result.update(ops.confirm(token))); c.start()
+    time.sleep(0.2)
+    assert not result, 'confirm must block while rollback holds the lock'
+    release.set(); t.join(5); c.join(5)
+    assert result=={'confirmed':False,'rolled_back':True}
+
+def test_tokens_are_validated_before_touching_paths_or_unit_names(tmp_path):
+    import pytest
+    ops=FirewallHelperOps(runner=StatefulUfw(),state_dir=tmp_path)
+    for bad in ('../../etc/passwd','abc123','x'*32,'A'*32,'0'*32+'\n',None):
+        for method in (ops.confirm,ops.rollback,ops.auto_rollback):
+            with pytest.raises(ValueError): method(bad)
+
+def test_firewall_state_dir_must_be_private(tmp_path):
+    import pytest
+    target=tmp_path/'service-owned'; target.mkdir()
+    link=tmp_path/'firewall'; link.symlink_to(target)
+    ops=FirewallHelperOps(runner=StatefulUfw(),state_dir=link)
+    with pytest.raises(RuntimeError): ops.confirm('0'*32)
