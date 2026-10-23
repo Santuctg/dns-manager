@@ -55,15 +55,20 @@ def validate_policy(policy, rules:Iterable, *, ssh_port:int=2222, source_ip:str|
         else:
             try: addr=ip_address(source_ip) if source_ip else None; mgmt=ip_network(target,strict=False)
             except ValueError: errors.append('invalid management source'); addr=None; mgmt=None
-            ok=False
+            ok=False; blocked_by=None
             if mgmt:
-                for r in normalized:
-                    if r.enabled and r.action=='allow' and r.protocol in {'tcp','both'} and _covers_port(r,ssh_port):
-                        for cidr in r.source_cidrs:
-                            rn=ip_network(cidr,strict=False)
-                            if (addr is not None and addr in rn) or (mgmt.version==rn.version and mgmt.subnet_of(rn)):
-                                ok=True
-            if not ok: errors.append(f'no safe SSH allow path for port {ssh_port}')
+                # UFW applies the first matching rule, in the order build_preview emits them.
+                ssh_rules=sorted((r for r in normalized if r.enabled and r.protocol in {'tcp','both'} and _covers_port(r,ssh_port)),key=lambda r:(r.sort_key,r.id or 0))
+                for r in ssh_rules:
+                    nets=[ip_network(cidr,strict=False) for cidr in r.source_cidrs]
+                    hits_source=any(addr is not None and addr.version==rn.version and addr in rn for rn in nets)
+                    if r.action=='allow' and (hits_source or any(mgmt.version==rn.version and mgmt.subnet_of(rn) for rn in nets)):
+                        ok=True; break
+                    # Any overlap is enough to cut off part of the management range.
+                    if r.action=='deny' and (hits_source or any(mgmt.version==rn.version and mgmt.overlaps(rn) for rn in nets)):
+                        blocked_by=r; break
+            if blocked_by is not None: errors.append(f'no safe SSH allow path for port {ssh_port}: deny rule {blocked_by.comment or blocked_by.purpose} (order {blocked_by.sort_key}) matches the management source first')
+            elif not ok: errors.append(f'no safe SSH allow path for port {ssh_port}')
     return FirewallValidationResult(errors,warnings,high,normalized)
 
 def build_preview(policy,rules):
