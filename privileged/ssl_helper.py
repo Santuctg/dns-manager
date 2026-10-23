@@ -16,9 +16,6 @@ from app.schemas.mapping import validate_upstream_host
 
 _DOMAIN_RE=re.compile(r'^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$',re.I)
 _LOCKS: dict[str, threading.Lock]={}
-# Cloudflare API tokens are URL-safe strings; anything else (notably a newline)
-# could add settings to the certbot credentials file the token is written into.
-_CLOUDFLARE_TOKEN_RE=re.compile(r'[A-Za-z0-9_.-]{1,256}')
 
 
 def _domain(value:str)->str:
@@ -28,6 +25,11 @@ def _domain(value:str)->str:
 
 
 def _run_default(argv, **kwargs): return subprocess.run(argv,text=True,capture_output=True,**kwargs)
+
+
+# Cloudflare API tokens are URL-safe strings; anything else (notably a newline)
+# could add settings to the certbot credentials file the token is written into.
+_CLOUDFLARE_TOKEN_RE=re.compile(r'[A-Za-z0-9_.-]{1,256}')
 
 
 class SslHelperOps:
@@ -210,8 +212,8 @@ class SslHelperOps:
         return match.group(1).strip() if match else None
 
     def _cloudflare_run(self, domain, token, *, dry_run=False, force=False):
-        d=_domain(domain)
         if not isinstance(token,str) or not _CLOUDFLARE_TOKEN_RE.fullmatch(token): raise ValueError('invalid Cloudflare API token')
+        d=_domain(domain)
         self.work_root.mkdir(parents=True,exist_ok=True)
         fd,path=tempfile.mkstemp(prefix='cf-',dir=self.work_root)
         try:
