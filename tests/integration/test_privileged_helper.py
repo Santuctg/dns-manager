@@ -299,6 +299,7 @@ def test_helper_server_ignores_broken_pipe_when_client_disconnects():
             self.read = False
         def __enter__(self): return self
         def __exit__(self, *args): return False
+        def settimeout(self, timeout): pass
         def recv(self, size):
             if self.read:
                 return b""
