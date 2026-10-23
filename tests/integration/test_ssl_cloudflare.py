@@ -60,3 +60,24 @@ def test_real_cloudflare_issue_rejects_wrong_renewal_authenticator(tmp_path):
     import pytest
     with pytest.raises(RuntimeError, match='renewal lineage is not configured for dns-cloudflare'):
         ops.ssl_issue(domain,'cloudflare',token)
+
+
+def test_cloudflare_token_cannot_inject_credentials_file_settings(tmp_path):
+    import pytest
+    calls=[]
+    ops=SslHelperOps(letsencrypt_root=tmp_path/'le', runner=lambda argv, **kw: calls.append(argv), work_root=tmp_path/'work')
+    for bad in ('secret-token-1234\ndns_cloudflare_email = x@example.com', 'secret token with spaces 1234', '', None, 'x'*257):
+        with pytest.raises(ValueError):
+            ops.ssl_issue('dns.example.com','cloudflare',bad) if bad else ops._cloudflare_run('dns.example.com',bad)
+    assert calls == []
+    assert not (tmp_path/'work').exists() or not list((tmp_path/'work').glob('cf-*'))
+
+
+def test_api_schema_rejects_tokens_with_control_characters():
+    import pytest
+    from pydantic import ValidationError
+    from app.schemas.ssl import SslCertificateCreate
+    assert SslCertificateCreate(domain='dns.example.com', provider='cloudflare', api_token=' abcDEF_123-xyz.0987654321 ').api_token == 'abcDEF_123-xyz.0987654321'
+    for bad in ('abc\ndns_cloudflare_email=x', 'abc def', 'ünïcode-token-123456789'):
+        with pytest.raises(ValidationError):
+            SslCertificateCreate(domain='dns.example.com', provider='cloudflare', api_token=bad)
