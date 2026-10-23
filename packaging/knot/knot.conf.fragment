@@ -3,5 +3,5 @@ server:
   listen: __ACME_DNS_LISTEN_IP__@__ACME_DNS_PORT__
 zone:
   - domain: __ACME_DNS_ZONE__
-    storage: /var/lib/dns-manager/acme-dns
+    storage: /var/lib/dns-manager-acme-dns
     file: __ACME_DNS_ZONE__.zone

@@ -32,7 +32,7 @@ def test_privileged_helper_service_is_root_and_only_managed_paths_are_writable()
     assert "User=root" in unit
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
-    assert "ReadWritePaths=/var/lib/dns-manager /var/lib/dns-manager/acme-dns /var/lib/dns-manager-helper /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd" in unit
+    assert "ReadWritePaths=/var/lib/dns-manager -/var/lib/dns-manager-acme-dns /var/lib/dns-manager-helper /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd" in unit
     assert "ExecStart=/usr/local/libexec/dns-manager-helper-server" in unit
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK" in unit
 
@@ -76,29 +76,37 @@ def test_acme_delegation_packaging_installs_knot_without_auto_activation():
     assert 'dns-manager-acme-dns-hook' in installer
 
 
-def test_acme_zone_storage_is_root_owned_and_knot_readable():
+def test_acme_zone_storage_is_root_owned_and_outside_service_tree():
     tmpfiles=(ROOT/'packaging/tmpfiles.d/dns-manager.conf').read_text()
     helper=text('dns-manager-helper.service')
-    assert 'd /var/lib/dns-manager/acme-dns 0750 root root' in tmpfiles
-    assert '/var/lib/dns-manager/acme-dns' in helper
+    fragment=(ROOT/'packaging/knot/knot.conf.fragment').read_text()
+    installer=(ROOT/'packaging/install.sh').read_text()
+    assert '/var/lib/dns-manager/acme-dns' not in tmpfiles
+    # Optional path: the unit must still start when the legacy feature is off.
+    assert ' -/var/lib/dns-manager-acme-dns ' in helper
+    assert 'storage: /var/lib/dns-manager-acme-dns' in fragment
+    assert 'install -d -o root -g knot -m 0750 "$ACME_DNS_STATE"' in installer
 
 
 def test_release_version_is_042_metadata():
     assert (ROOT/'VERSION').read_text().strip()=='0.6.11'
 
 
-def test_knot_gets_only_parent_traverse_access_to_acme_zone_storage():
+def test_knot_no_longer_gets_access_to_the_service_owned_tree():
     installer=(ROOT/'packaging/install.sh').read_text()
-    assert 'setfacl -m u:knot:--x /var/lib/dns-manager' in installer
+    assert 'setfacl -m u:knot' not in installer
+    assert 'setfacl -x u:knot /var/lib/dns-manager' in installer
     assert 'apt-get install -y knot acl' in installer
 
 
-def test_installer_restores_knot_ownership_on_existing_acme_zone_files_after_general_chown():
+def test_installer_migrates_acme_zone_before_general_chown_and_repoints_knot():
     installer=(ROOT/'packaging/install.sh').read_text()
     general=installer.index('chown -R dnsmanager:dnsmanager /var/lib/dns-manager')
-    restore=installer.index('chown -R root:knot /var/lib/dns-manager/acme-dns') if 'chown -R root:knot /var/lib/dns-manager/acme-dns' in installer else -1
-    assert restore > general
-    assert "find /var/lib/dns-manager/acme-dns -type f -exec chmod 0640 {} +" in installer
+    assert installer.index("find /var/lib/dns-manager/acme-dns -maxdepth 1 -type f -name '*.zone' -user root") < general
+    assert 'chown -R root:knot "$ACME_DNS_STATE"' in installer
+    assert 'find "$ACME_DNS_STATE" -type f -exec chmod 0640 {} +' in installer
+    assert "sed -i 's#storage: /var/lib/dns-manager/acme-dns#storage: /var/lib/dns-manager-acme-dns#' /etc/knot/knot.conf" in installer
+    assert 'knot.conf.pre-acme-dns-move' in installer
 
 
 def test_knot_install_temporarily_overrides_and_restores_policy_rcd_even_on_failure():

@@ -28,7 +28,7 @@ RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-ReadWritePaths=/var/lib/dns-manager /var/lib/dns-manager/acme-dns /var/lib/dns-manager-helper /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd
+ReadWritePaths=/var/lib/dns-manager -/var/lib/dns-manager-acme-dns /var/lib/dns-manager-helper /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd
 
 [Install]
 WantedBy=multi-user.target
