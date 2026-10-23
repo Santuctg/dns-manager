@@ -56,9 +56,26 @@ def _protect_target(actor: User, target: User) -> None:
         raise HTTPException(status_code=403, detail='Only Super Admin can manage Super Admin accounts')
 
 
+def _permission_names(role: Role | None) -> set[str]:
+    return {permission.name for permission in role.permissions} if role is not None else set()
+
+
+def _within_actor_permissions(actor: User, role: Role | None) -> bool:
+    return _is_super_admin(actor) or _permission_names(role) <= _permission_names(actor.role)
+
+
 def _protect_assignment(actor: User, role: Role) -> None:
     if role.name == 'super_admin' and not _is_super_admin(actor):
         raise HTTPException(status_code=403, detail='Only Super Admin can assign Super Admin role')
+    if not _within_actor_permissions(actor, role):
+        raise HTTPException(status_code=403, detail='Cannot assign a role with permissions you do not have')
+
+
+def _protect_privileged_target(actor: User, target: User) -> None:
+    # Changing or resetting a more privileged account would let the actor take it over.
+    _protect_target(actor, target)
+    if not _within_actor_permissions(actor, target.role):
+        raise HTTPException(status_code=403, detail='Cannot manage a user whose role has permissions you do not have')
 
 
 def _snapshot(user: User) -> dict[str, object]:
@@ -118,7 +135,7 @@ def create(payload: UserCreate, request: Request, db: Session = Depends(get_db),
 def update(user_id: int, payload: UserUpdate, request: Request, db: Session = Depends(get_db), actor: User = Depends(require_permission('user.update'))):
     _require_csrf(request, db)
     target = _get_user(db, user_id)
-    _protect_target(actor, target)
+    _protect_privileged_target(actor, target)
     role = _get_role(db, payload.role_id) if payload.role_id is not None else None
     if role is not None:
         _protect_assignment(actor, role)
@@ -152,7 +169,7 @@ def update(user_id: int, payload: UserUpdate, request: Request, db: Session = De
 def reset_password(user_id: int, payload: PasswordReset, request: Request, db: Session = Depends(get_db), actor: User = Depends(require_permission('user.update'))):
     _require_csrf(request, db)
     target = _get_user(db, user_id)
-    _protect_target(actor, target)
+    _protect_privileged_target(actor, target)
     target.password_hash = hash_password(payload.password)
     target.failed_login_count = 0
     target.locked_until = None
@@ -166,7 +183,7 @@ def reset_password(user_id: int, payload: PasswordReset, request: Request, db: S
 def deactivate(user_id: int, request: Request, db: Session = Depends(get_db), actor: User = Depends(require_permission('user.delete'))):
     _require_csrf(request, db)
     target = _get_user(db, user_id)
-    _protect_target(actor, target)
+    _protect_privileged_target(actor, target)
     if actor.id == target.id:
         raise HTTPException(status_code=409, detail='Cannot deactivate your own account')
     if _would_remove_last_active_super_admin(db, target, None, False):

@@ -33,6 +33,15 @@ def _get_role(db: Session, role_id: int) -> Role:
     return role
 
 
+def _protect_role_scope(actor: User, *permission_sets: set[str]) -> None:
+    # A role manager may only hand out, or edit roles holding, permissions they hold themselves.
+    if actor.role is not None and actor.role.name == 'super_admin':
+        return
+    held = {p.name for p in actor.role.permissions} if actor.role is not None else set()
+    if any(not names <= held for names in permission_sets):
+        raise HTTPException(status_code=403, detail='Cannot manage permissions you do not have')
+
+
 def _view(role: Role) -> RoleRead:
     return RoleRead(id=role.id, name=role.name, description=role.description, permissions=sorted(p.name for p in role.permissions))
 
@@ -58,6 +67,7 @@ def create_role(payload: RoleCreate, request: Request, db: Session = Depends(get
     missing = sorted(set(requested) - found)
     if missing:
         raise HTTPException(status_code=400, detail={'unknown_permissions': missing})
+    _protect_role_scope(actor, set(requested))
     role = Role(name=name, description=(payload.description.strip() if payload.description else None), permissions=sorted(rows, key=lambda p: p.name))
     db.add(role)
     db.commit()
@@ -73,6 +83,7 @@ def delete_role(role_id: int, request: Request, db: Session = Depends(get_db), a
     role = _get_role(db, role_id)
     if role.name in {'super_admin', 'admin', 'viewer'}:
         raise HTTPException(status_code=409, detail='Built-in roles cannot be deleted')
+    _protect_role_scope(actor, {p.name for p in role.permissions})
     assigned_users = db.scalar(select(func.count(User.id)).where(User.role_id == role.id)) or 0
     if assigned_users:
         noun = 'user' if assigned_users == 1 else 'users'
@@ -113,6 +124,9 @@ def update_permissions(role_id: int, payload: RolePermissionsUpdate, request: Re
     missing = sorted(set(requested) - found)
     if missing:
         raise HTTPException(status_code=400, detail={'unknown_permissions': missing})
+    if actor.role_id == role.id:
+        raise HTTPException(status_code=409, detail='Cannot change the permissions of your own role')
+    _protect_role_scope(actor, set(requested), {p.name for p in role.permissions})
     before = sorted(p.name for p in role.permissions)
     role.permissions = sorted(rows, key=lambda p: p.name)
     db.commit()

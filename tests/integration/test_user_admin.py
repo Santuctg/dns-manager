@@ -20,10 +20,10 @@ def make_env(actor_role='super_admin', actor_permissions=None):
     Base.metadata.create_all(engine)
     with Session(engine) as db:
         perms = {}
-        for name in sorted(set(ALL + ['mapping.view'])):
+        for name in sorted(set(ALL + ['mapping.view', 'backup.restore', 'firewall.manage'])):
             p = Permission(name=name); db.add(p); perms[name] = p
         super_role = Role(name='super_admin', permissions=list(perms.values()))
-        admin_role = Role(name='admin', permissions=[perms[n] for n in ['user.view','user.create','user.update','user.delete','role.view']])
+        admin_role = Role(name='admin', permissions=[perms[n] for n in ['mapping.view','user.view','user.create','user.update','user.delete','role.view']])
         viewer_role = Role(name='viewer', permissions=[perms['mapping.view']])
         db.add_all([super_role, admin_role, viewer_role]); db.flush()
         role = {'super_admin': super_role, 'admin': admin_role, 'viewer': viewer_role}[actor_role]
@@ -246,5 +246,86 @@ def test_role_delete_blocks_builtins_and_assigned_custom_role_with_user_count():
         assert '1 user' in blocked.json()['detail']
         with Session(engine) as db:
             assert db.get(Role, role_id) is not None
+    finally:
+        cleanup()
+
+
+def _add_role(engine, name, permission_names, *, username=None):
+    with Session(engine) as db:
+        perms = [db.scalar(select(Permission).where(Permission.name == n)) for n in permission_names]
+        role = Role(name=name, permissions=perms); db.add(role); db.flush()
+        user_id = None
+        if username:
+            user = User(username=username, email=f'{username}@example.com', password_hash=hash_password('very-secure-password'), role=role)
+            db.add(user); db.flush(); user_id = user.id
+        db.commit()
+        return role.id, user_id
+
+
+def test_admin_cannot_assign_a_custom_role_with_permissions_the_admin_lacks():
+    engine, client = make_env(actor_role='admin')
+    try:
+        powerful_id, _ = _add_role(engine, 'firewall_operator', ['mapping.view', 'firewall.manage', 'backup.restore'])
+        modest_id, _ = _add_role(engine, 'mapping_reader', ['mapping.view'])
+        created = client.post('/api/v1/users', headers=csrf_headers(), json={'username':'mallory','password':'a-strong-password','role_id':powerful_id})
+        assert created.status_code == 403
+        assert 'permissions you do not have' in created.json()['detail']
+
+        ok = client.post('/api/v1/users', headers=csrf_headers(), json={'username':'carol','password':'a-strong-password','role_id':modest_id})
+        assert ok.status_code == 201
+        upgraded = client.put(f"/api/v1/users/{ok.json()['id']}", headers=csrf_headers(), json={'role_id':powerful_id})
+        assert upgraded.status_code == 403
+        with Session(engine) as db:
+            assert db.scalar(select(User).where(User.username == 'mallory')) is None
+            assert db.scalar(select(User).where(User.username == 'carol')).role.name == 'mapping_reader'
+    finally:
+        cleanup()
+
+
+def test_admin_cannot_take_over_a_user_whose_role_has_more_permissions():
+    engine, client = make_env(actor_role='admin')
+    try:
+        _, operator_id = _add_role(engine, 'firewall_operator', ['mapping.view', 'firewall.manage'], username='operator')
+        assert client.post(f'/api/v1/users/{operator_id}/reset-password', headers=csrf_headers(), json={'password':'attacker-chosen-password'}).status_code == 403
+        assert client.put(f'/api/v1/users/{operator_id}', headers=csrf_headers(), json={'email':'attacker@example.com'}).status_code == 403
+        assert client.delete(f'/api/v1/users/{operator_id}', headers=csrf_headers()).status_code == 403
+        with Session(engine) as db:
+            operator = db.get(User, operator_id)
+            assert verify_password(operator.password_hash, 'very-secure-password')
+            assert operator.email == 'operator@example.com' and operator.is_active
+    finally:
+        cleanup()
+
+
+def test_super_admin_can_still_assign_and_manage_any_custom_role():
+    engine, client = make_env()
+    try:
+        powerful_id, operator_id = _add_role(engine, 'firewall_operator', ['firewall.manage', 'backup.restore'], username='operator')
+        assert client.post('/api/v1/users', headers=csrf_headers(), json={'username':'dave','password':'a-strong-password','role_id':powerful_id}).status_code == 201
+        assert client.post(f'/api/v1/users/{operator_id}/reset-password', headers=csrf_headers(), json={'password':'a-new-strong-password'}).status_code == 200
+    finally:
+        cleanup()
+
+
+def test_role_manager_cannot_grant_or_edit_permissions_beyond_their_own():
+    manager_perms = ['role.view', 'role.manage', 'mapping.view', 'user.view']
+    engine, client = make_env(actor_role='admin', actor_permissions=manager_perms)
+    try:
+        roles = {r['name']: r['id'] for r in client.get('/api/v1/roles').json()}
+        # Creating a role above the actor is refused; a subset is fine.
+        assert client.post('/api/v1/roles', headers=csrf_headers(), json={'name':'escalated','permissions':['mapping.view','firewall.manage']}).status_code == 403
+        assert client.post('/api/v1/roles', headers=csrf_headers(), json={'name':'reader','permissions':['mapping.view']}).status_code == 201
+        # Widening another role beyond the actor's permissions is refused.
+        assert client.put(f"/api/v1/roles/{roles['viewer']}/permissions", headers=csrf_headers(), json={'permissions':['mapping.view','backup.restore']}).status_code == 403
+        assert client.put(f"/api/v1/roles/{roles['viewer']}/permissions", headers=csrf_headers(), json={'permissions':['mapping.view','user.view']}).status_code == 200
+        # The actor's own role cannot be edited, even within scope.
+        assert client.put(f"/api/v1/roles/{roles['admin']}/permissions", headers=csrf_headers(), json={'permissions':manager_perms}).status_code == 409
+        # Roles that already hold permissions the actor lacks cannot be edited or deleted.
+        operator_id, _ = _add_role(engine, 'firewall_operator', ['firewall.manage'])
+        assert client.put(f'/api/v1/roles/{operator_id}/permissions', headers=csrf_headers(), json={'permissions':['mapping.view']}).status_code == 403
+        assert client.delete(f'/api/v1/roles/{operator_id}', headers=csrf_headers()).status_code == 403
+        with Session(engine) as db:
+            assert db.scalar(select(Role).where(Role.name == 'escalated')) is None
+            assert {p.name for p in db.get(Role, operator_id).permissions} == {'firewall.manage'}
     finally:
         cleanup()
