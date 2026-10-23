@@ -32,7 +32,7 @@ def test_privileged_helper_service_is_root_and_only_managed_paths_are_writable()
     assert "User=root" in unit
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
-    assert "ReadWritePaths=/var/lib/dns-manager /var/lib/dns-manager/acme-dns /var/lib/dns-manager/firewall /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd" in unit
+    assert "ReadWritePaths=/var/lib/dns-manager /var/lib/dns-manager/acme-dns /var/lib/dns-manager-helper /etc/dnsmasq.d /etc/nginx/conf.d /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/log/nginx /var/lib/nginx /etc/ufw /etc/default/ufw /lib/ufw /run/dns-manager /run/systemd" in unit
     assert "ExecStart=/usr/local/libexec/dns-manager-helper-server" in unit
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK" in unit
 
@@ -236,18 +236,27 @@ def test_058_packages_firewall_rollback_without_enabling_ufw():
     unit=(ROOT/'packaging/systemd/dns-manager-firewall-rollback@.service').read_text()
     assert 'dns-manager-firewall-rollback@.service' in installer
     assert 'dns-manager-firewall-rollback' in installer
-    assert 'd /var/lib/dns-manager/firewall 0700 root root -' in tmpfiles
+    assert 'd /var/lib/dns-manager-helper/firewall 0700 root root -' in tmpfiles
+    assert 'ReadWritePaths=/var/lib/dns-manager-helper/firewall ' in unit
     assert 'ExecStart=/bin/sleep 120' in unit
     assert '/usr/local/libexec/dns-manager-firewall-rollback %i' in unit
     assert 'ufw enable' not in installer
     assert 'ufw reset' not in installer
 
-def test_058_restores_root_ownership_after_general_state_chown():
+def test_helper_private_state_is_root_only_and_outside_service_owned_tree():
     installer=(ROOT/'packaging/install.sh').read_text()
+    tmpfiles=(ROOT/'packaging/tmpfiles.d/dns-manager.conf').read_text()
+    for sub in ('', '/config', '/config/known-good', '/acme', '/firewall'):
+        assert f'd /var/lib/dns-manager-helper{sub} 0700 root root -' in tmpfiles
+    # The old service-writable locations must no longer be provisioned.
+    assert '/var/lib/dns-manager/known-good' not in tmpfiles
+    assert 'd /var/lib/dns-manager/acme ' not in tmpfiles
+    assert 'd /var/lib/dns-manager/firewall ' not in tmpfiles
     general=installer.index('chown -R dnsmanager:dnsmanager /var/lib/dns-manager')
-    firewall=installer.index('chown -R root:root /var/lib/dns-manager/firewall')
-    assert firewall > general
-    assert 'find /var/lib/dns-manager/firewall -type f -exec chmod 0600 {} +' in installer
+    # Old firewall state is copied while it is still root-owned, i.e. before the general chown.
+    assert installer.index('find /var/lib/dns-manager/firewall -maxdepth 1 -type f -user root') < general
+    assert 'chown -R root:root "$HELPER_STATE"' in installer
+    assert 'find "$HELPER_STATE/firewall" -type f -exec chmod 0600 {} +' in installer
 
 
 def test_058_helper_sandbox_allows_ufw_netlink_without_shell_access():

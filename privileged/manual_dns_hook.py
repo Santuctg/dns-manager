@@ -28,7 +28,7 @@ def read_challenge_state(root:Path|str, domain:str)->dict:
 
 
 def certbot_auth_hook()->int:
-    root=Path(os.environ.get('DNS_MANAGER_ACME_STATE_DIR','/var/lib/dns-manager/acme'))
+    root=Path(os.environ.get('DNS_MANAGER_ACME_STATE_DIR','/var/lib/dns-manager-helper/acme'))
     domain=os.environ['CERTBOT_DOMAIN']; value=os.environ['CERTBOT_VALIDATION']
     name=f'_acme-challenge.{_safe_domain(domain)}'
     write_challenge_state(root,domain,name,value)

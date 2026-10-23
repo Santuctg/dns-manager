@@ -167,12 +167,25 @@ rm -f /etc/systemd/system/dns-manager.service.d/privileged-helper.conf
 
 systemd-tmpfiles --create /etc/tmpfiles.d/dns-manager.conf
 if [[ ! -x /usr/sbin/ufw ]]; then echo "DNS Manager firewall management: UFW not installed; feature will remain unavailable."; fi
+# Root-only helper state lives outside the service-owned /var/lib/dns-manager tree,
+# where the service user could rename or replace a root-owned subdirectory.
+HELPER_STATE=/var/lib/dns-manager-helper
+install -d -o root -g root -m 0700 "$HELPER_STATE" "$HELPER_STATE/config" "$HELPER_STATE/config/known-good" "$HELPER_STATE/acme" "$HELPER_STATE/firewall"
+# One-time move of firewall state from its old location (still root-owned
+# here, before the chown below).
+if [[ -d /var/lib/dns-manager/firewall && ! -L /var/lib/dns-manager/firewall && ! -e "$HELPER_STATE/firewall/current-managed.json" ]]; then
+  find /var/lib/dns-manager/firewall -maxdepth 1 -type f -user root -exec cp -p {} "$HELPER_STATE/firewall/" \;
+fi
+# Seed known-good from the root-owned live files; the old service-writable copy is not trusted.
+for pair in "/etc/dnsmasq.d/dns-manager.conf:dnsmasq.conf" "/etc/nginx/conf.d/dns-manager.conf:nginx.conf"; do
+  live="${pair%%:*}"; good="$HELPER_STATE/config/known-good/${pair##*:}"
+  if [[ ! -e "$good" && -f "$live" ]]; then install -o root -g root -m 0644 "$live" "$good"; fi
+done
+chown -R root:root "$HELPER_STATE"
+find "$HELPER_STATE" -type d -exec chmod 0700 {} +
+find "$HELPER_STATE/firewall" -type f -exec chmod 0600 {} +
 chown -R dnsmanager:dnsmanager /var/lib/dns-manager
 chmod 0750 /var/lib/dns-manager
-install -d -o root -g root -m 0700 /var/lib/dns-manager/firewall
-chown -R root:root /var/lib/dns-manager/firewall
-find /var/lib/dns-manager/firewall -type d -exec chmod 0700 {} +
-find /var/lib/dns-manager/firewall -type f -exec chmod 0600 {} +
 if [[ "${DNS_MANAGER_ENABLE_LEGACY_ACME_DNS:-false}" == "true" ]] && getent group knot >/dev/null; then
   install -d -o root -g knot -m 0750 /var/lib/dns-manager/acme-dns
   chown -R root:knot /var/lib/dns-manager/acme-dns

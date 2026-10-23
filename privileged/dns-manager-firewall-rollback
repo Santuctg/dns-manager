@@ -3,4 +3,4 @@ import sys
 sys.path.insert(0,'/opt/dns-manager/dns-manager')
 from privileged.firewall_helper import FirewallHelperOps
 if len(sys.argv)!=2: raise SystemExit(2)
-FirewallHelperOps().rollback(sys.argv[1])
+FirewallHelperOps().auto_rollback(sys.argv[1])

@@ -132,7 +132,11 @@ def confirm(request:Request,db:Session=Depends(get_db),actor:User=Depends(requir
     _csrf(request,db);p=_policy(db)
     rev=db.scalar(select(FirewallRevision).where(FirewallRevision.revision==p.pending_revision,FirewallRevision.status=='pending').order_by(FirewallRevision.id.desc())) if p.pending_revision is not None else None
     if not rev: return {'confirmed':True,'already_confirmed':True,'revision':p.applied_revision}
-    PrivilegedHelper().firewall_confirm(rev.snapshot_token);p.applied_revision=rev.revision;p.pending_revision=None;p.last_applied_at=datetime.now(timezone.utc);p.last_applied_user_id=actor.id;rev.status='applied';db.commit();_audit(db,actor,request,'FIREWALL_APPLIED',new={'revision':p.applied_revision});return {'confirmed':True,'revision':p.applied_revision}
+    result=PrivilegedHelper().firewall_confirm(rev.snapshot_token)
+    if result.get('rolled_back') and not result.get('confirmed'):
+        rev.status='rolled_back';p.pending_revision=None;db.commit();_audit(db,actor,request,'FIREWALL_CONFIRM_TOO_LATE',new={'revision':rev.revision},status='failed',error='emergency rollback already restored the previous rules')
+        raise HTTPException(409,'Confirmation window expired: the firewall was rolled back to the previous rules. Apply again to retry.')
+    p.applied_revision=rev.revision;p.pending_revision=None;p.last_applied_at=datetime.now(timezone.utc);p.last_applied_user_id=actor.id;rev.status='applied';db.commit();_audit(db,actor,request,'FIREWALL_APPLIED',new={'revision':p.applied_revision});return {'confirmed':True,'revision':p.applied_revision}
 
 @router.post('/rollback')
 def rollback(request:Request,db:Session=Depends(get_db),actor:User=Depends(require_permission('firewall.manage'))):
