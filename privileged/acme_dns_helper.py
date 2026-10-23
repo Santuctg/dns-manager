@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Callable
 
 from app.config import AcmeDnsConfig, get_settings, load_acme_dns_config
+from privileged.helper_lib import ensure_private_dir
+
+# Outside the service-owned /var/lib/dns-manager tree: Knot serves whatever zone
+# file it finds here, so the service user must not be able to swap the directory.
+DEFAULT_STORAGE = Path('/var/lib/dns-manager-acme-dns')
 
 
 def _local_ips() -> set[str]:
@@ -73,7 +78,7 @@ class AcmeDnsHelperOps:
         *,
         local_ips: Callable[[], set[str]] = _local_ips,
         port_available: Callable[[str, str], bool] = _port_available,
-        storage: Path | str = '/var/lib/dns-manager/acme-dns',
+        storage: Path | str = DEFAULT_STORAGE,
         registration_checker: Callable[[str], bool] = _registered_in_db,
         runner: Callable = _default_runner,
     ):
@@ -88,6 +93,13 @@ class AcmeDnsHelperOps:
         except KeyError:
             self.knot_gid = os.getegid()
         self._records: dict[str, set[str]] | None = None
+
+    def _storage_dir(self) -> Path:
+        if not self.storage.exists():
+            self.storage.mkdir(mode=0o750, parents=True)
+            if os.geteuid() == 0:
+                os.chown(self.storage, 0, self.knot_gid)
+        return ensure_private_dir(self.storage)
 
     @property
     def zone_path(self) -> Path:
@@ -151,6 +163,7 @@ class AcmeDnsHelperOps:
         if self._records is not None:
             return {k: set(v) for k, v in self._records.items()}
         records: dict[str, set[str]] = {}
+        self._storage_dir()
         if self.zone_path.is_file():
             for line in self.zone_path.read_text().splitlines():
                 match = re.match(r'^(dns-[0-9a-f]{12})\s+30\s+IN\s+TXT\s+"([A-Za-z0-9_-]+)"$', line.strip())
@@ -170,7 +183,7 @@ class AcmeDnsHelperOps:
         return '\n'.join(lines) + '\n'
 
     def _atomic_write_validated(self, text: str) -> None:
-        self.storage.mkdir(parents=True, exist_ok=True)
+        self._storage_dir()
         old = self.zone_path.read_bytes() if self.zone_path.is_file() else None
         fd, tmp_name = tempfile.mkstemp(prefix='.acme-zone.', dir=self.storage)
         try:

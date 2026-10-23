@@ -184,14 +184,29 @@ done
 chown -R root:root "$HELPER_STATE"
 find "$HELPER_STATE" -type d -exec chmod 0700 {} +
 find "$HELPER_STATE/firewall" -type f -exec chmod 0600 {} +
+# ACME DNS zone storage also lives outside the service-owned tree: Knot serves
+# whatever zone file it finds there.
+ACME_DNS_STATE=/var/lib/dns-manager-acme-dns
+if [[ "${DNS_MANAGER_ENABLE_LEGACY_ACME_DNS:-false}" == "true" ]] && getent group knot >/dev/null; then
+  install -d -o root -g knot -m 0750 "$ACME_DNS_STATE"
+  # One-time move of zone files from the old location, while they are still
+  # root-owned (before the chown below).
+  if [[ -d /var/lib/dns-manager/acme-dns && ! -L /var/lib/dns-manager/acme-dns && -z "$(ls -A "$ACME_DNS_STATE")" ]]; then
+    find /var/lib/dns-manager/acme-dns -maxdepth 1 -type f -name '*.zone' -user root -exec cp -p {} "$ACME_DNS_STATE/" \;
+  fi
+  chown -R root:knot "$ACME_DNS_STATE"
+  find "$ACME_DNS_STATE" -type f -exec chmod 0640 {} +
+  # Point an existing Knot configuration at the new storage path.
+  if [[ -f /etc/knot/knot.conf ]] && grep -q 'storage: /var/lib/dns-manager/acme-dns' /etc/knot/knot.conf; then
+    cp -a /etc/knot/knot.conf "/etc/knot/knot.conf.pre-acme-dns-move.$(date -u +%Y%m%dT%H%M%SZ)"
+    sed -i 's#storage: /var/lib/dns-manager/acme-dns#storage: /var/lib/dns-manager-acme-dns#' /etc/knot/knot.conf
+    if systemctl is-active --quiet knot; then systemctl restart knot; fi
+  fi
+fi
+# Knot no longer needs to traverse the service-owned tree.
+if command -v setfacl >/dev/null 2>&1; then setfacl -x u:knot /var/lib/dns-manager 2>/dev/null || true; fi
 chown -R dnsmanager:dnsmanager /var/lib/dns-manager
 chmod 0750 /var/lib/dns-manager
-if [[ "${DNS_MANAGER_ENABLE_LEGACY_ACME_DNS:-false}" == "true" ]] && getent group knot >/dev/null; then
-  install -d -o root -g knot -m 0750 /var/lib/dns-manager/acme-dns
-  chown -R root:knot /var/lib/dns-manager/acme-dns
-  find /var/lib/dns-manager/acme-dns -type f -exec chmod 0640 {} +
-  setfacl -m u:knot:--x /var/lib/dns-manager
-fi
 
 # Validate the pre-existing dnsmasq safety base file before starting services.
 # The installer never overwrites this network-specific configuration.

@@ -80,10 +80,9 @@ Expected: `safe: True` and the selected listen IP.
 ## 4. Create the initial authoritative zone
 
 ```bash
-install -d -o root -g knot -m 0750 /var/lib/dns-manager/acme-dns
-setfacl -m u:knot:--x /var/lib/dns-manager
+install -d -o root -g knot -m 0750 /var/lib/dns-manager-acme-dns
 SERIAL="$(date -u +%Y%m%d%H)"
-cat >/var/lib/dns-manager/acme-dns/acme-dns.connect3.net.bd.zone <<EOF
+cat >/var/lib/dns-manager-acme-dns/acme-dns.connect3.net.bd.zone <<EOF
 \$ORIGIN acme-dns.connect3.net.bd.
 \$TTL 30
 @ IN SOA ns1-acme.connect3.net.bd. hostmaster.acme-dns.connect3.net.bd. (
@@ -91,8 +90,8 @@ cat >/var/lib/dns-manager/acme-dns/acme-dns.connect3.net.bd.zone <<EOF
 )
 @ IN NS ns1-acme.connect3.net.bd.
 EOF
-chown root:knot /var/lib/dns-manager/acme-dns/acme-dns.connect3.net.bd.zone
-chmod 0640 /var/lib/dns-manager/acme-dns/acme-dns.connect3.net.bd.zone
+chown root:knot /var/lib/dns-manager-acme-dns/acme-dns.connect3.net.bd.zone
+chmod 0640 /var/lib/dns-manager-acme-dns/acme-dns.connect3.net.bd.zone
 ```
 
 ## 5. Configure Knot authoritative-only DNS
@@ -117,7 +116,7 @@ database:
 
 zone:
   - domain: $ACME_DNS_ZONE
-    storage: /var/lib/dns-manager/acme-dns
+    storage: /var/lib/dns-manager-acme-dns
     file: $ACME_DNS_ZONE.zone
 EOF
 chown root:knot /etc/knot/knot.conf
@@ -253,11 +252,10 @@ dns-manager-ssl-renew.timer: enabled / active
 ```bash
 systemctl show dns-manager -p User -p NoNewPrivileges -p ProtectSystem -p ReadWritePaths --no-pager
 systemctl show dns-manager-helper.service -p User -p NoNewPrivileges -p ProtectSystem -p RestrictAddressFamilies -p ReadWritePaths --no-pager
-stat -c '%a %U %G %n' /etc/dns-manager/acme-dns.conf /var/lib/dns-manager/acme-dns
-getfacl -p /var/lib/dns-manager | sed -n '1,40p'
+stat -c '%a %U %G %n' /etc/dns-manager/acme-dns.conf /var/lib/dns-manager-acme-dns
 ```
 
-The Knot user should have only parent-directory traverse access via ACL; the ACME zone directory itself is `root:knot` and not world-readable.
+The ACME zone directory is `root:knot`, mode 0750, and sits outside the service-owned `/var/lib/dns-manager` tree, so the web service cannot replace the zone Knot serves. Knot needs no access to `/var/lib/dns-manager`.
 
 Search recent logs for accidental challenge/token output before release acceptance:
 

@@ -69,7 +69,7 @@ def test_preflight_and_rendered_knot_config_are_authoritative_only():
     text = ops.render_knot_config()
     assert "listen: 192.0.2.53@53" in text
     assert "domain: acme-dns.connect3.net.bd" in text
-    assert "storage: /var/lib/dns-manager/acme-dns" in text
+    assert "storage: /var/lib/dns-manager-acme-dns" in text
     assert "recurs" not in text.lower()
 
 
@@ -207,3 +207,35 @@ def test_txt_delete_removes_only_matching_value_and_is_idempotent(tmp_path):
     zone = (tmp_path / "acme-dns.connect3.net.bd.zone").read_text()
     assert 'TXT "token-one"' not in zone
     assert 'TXT "token-two"' in zone
+
+
+def test_zone_storage_must_be_a_private_directory(tmp_path):
+    cfg = load_acme_dns_config(Path("/nonexistent")).__class__(True, "acme-dns.connect3.net.bd", "ns1-acme.connect3.net.bd", "192.0.2.53", 30)
+    service_owned = tmp_path / "service-owned"
+    service_owned.mkdir()
+    (service_owned / "acme-dns.connect3.net.bd.zone").write_text('dns-a1b2c3d4e5f6 30 IN TXT "planted"\n')
+    link = tmp_path / "acme-dns"
+    link.symlink_to(service_owned)
+    ops = AcmeDnsHelperOps(config=cfg, storage=link, registration_checker=lambda h: True, runner=lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="not a directory"):
+        ops.txt_set("dns-a1b2c3d4e5f6.acme-dns.connect3.net.bd", "token")
+
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o777); shared.chmod(0o777)
+    ops = AcmeDnsHelperOps(config=cfg, storage=shared, registration_checker=lambda h: True, runner=lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="not private"):
+        ops.txt_set("dns-a1b2c3d4e5f6.acme-dns.connect3.net.bd", "token")
+
+
+def test_new_zone_storage_is_created_group_readable_for_knot(tmp_path):
+    import stat
+    cfg = load_acme_dns_config(Path("/nonexistent")).__class__(True, "acme-dns.connect3.net.bd", "ns1-acme.connect3.net.bd", "192.0.2.53", 30)
+    storage = tmp_path / "new-storage"
+
+    class OK:
+        returncode = 0; stdout = ""; stderr = ""
+
+    ops = AcmeDnsHelperOps(config=cfg, storage=storage, registration_checker=lambda h: True, runner=lambda *a, **k: OK())
+    ops.txt_set("dns-a1b2c3d4e5f6.acme-dns.connect3.net.bd", "token")
+    assert stat.S_IMODE(storage.stat().st_mode) & 0o050 == 0o050
+    assert stat.S_IMODE(storage.stat().st_mode) & 0o007 == 0
