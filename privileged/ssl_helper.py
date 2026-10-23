@@ -28,6 +28,11 @@ def _domain(value:str)->str:
 def _run_default(argv, **kwargs): return subprocess.run(argv,text=True,capture_output=True,**kwargs)
 
 
+# Cloudflare API tokens are URL-safe strings; anything else (notably a newline)
+# could add settings to the certbot credentials file the token is written into.
+_CLOUDFLARE_TOKEN_RE=re.compile(r'[A-Za-z0-9_.-]{1,256}')
+
+
 class SslHelperOps:
     def __init__(self, *, live_nginx: Path | None=None, nginx_conf_dir: Path=Path('/etc/nginx/conf.d'), letsencrypt_root: Path=Path('/etc/letsencrypt'), work_root: Path=PRIVATE_ROOT/'acme', runner:Callable=_run_default):
         self.live_nginx=Path(live_nginx) if live_nginx is not None else None; self.nginx_conf_dir=Path(nginx_conf_dir); self.letsencrypt_root=Path(letsencrypt_root); self.work_root=Path(work_root); self.runner=runner
@@ -212,6 +217,7 @@ class SslHelperOps:
         return match.group(1).strip() if match else None
 
     def _cloudflare_run(self, domain, token, *, dry_run=False, force=False):
+        if not isinstance(token,str) or not _CLOUDFLARE_TOKEN_RE.fullmatch(token): raise ValueError('invalid Cloudflare API token')
         d=_domain(domain)
         fd,path=tempfile.mkstemp(prefix='cf-',dir=ensure_private_dir(self.work_root))
         try:
