@@ -13,6 +13,7 @@ from app.services.auth_service import resolve_session
 from app.services.backup_service import (
     create_backup,
     delete_backup,
+    MAX_UPLOAD_BYTES,
     get_backup_archive,
     import_backup_archive,
     list_backups,
@@ -60,6 +61,18 @@ def backups_create(
 
 
 
+async def _read_limited_body(request: Request, limit: int) -> bytes:
+    declared = request.headers.get('content-length')
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise ValueError('backup upload is too large')
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise ValueError('backup upload is too large')
+    return bytes(body)
+
+
 @router.post('/upload', status_code=status.HTTP_201_CREATED)
 async def backups_upload(
     request: Request,
@@ -69,7 +82,7 @@ async def backups_upload(
     _require_csrf(request, db)
     filename = request.headers.get('X-Backup-Filename', '').strip()
     try:
-        payload = await request.body()
+        payload = await _read_limited_body(request, MAX_UPLOAD_BYTES)
         item = import_backup_archive(payload, filename=filename, paths=production_backup_paths())
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))

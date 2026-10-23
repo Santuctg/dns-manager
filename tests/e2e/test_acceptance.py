@@ -129,6 +129,7 @@ def acceptance_env(tmp_path, monkeypatch):
         generated_nginx=generated / "nginx.conf",
         generated_nginx_main=generated / "nginx-test.conf",
         backup_dir=tmp_path / "backups",
+        apply_lock=tmp_path / "apply.lock",
     )
     helper = FakePrivilegedHelper(generated, live_dnsmasq, live_nginx)
 

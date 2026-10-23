@@ -13,14 +13,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
 from app.config import get_settings
-from app.services.apply_service import _atomic_write, _nginx_test_config
+from app.services.apply_service import (
+    DEFAULT_LOCK_PATH,
+    _apply_lock,
+    _atomic_write,
+    _install_staged,
+    _nginx_test_config,
+    preview_config,
+)
 from app.services.privileged_helper import PrivilegedHelper
+from app.services.revision_service import create_revision, mark_revision_status
 
 BACKUP_FORMAT_VERSION = 1
 BACKUP_ID_RE = re.compile(r"^BKP-[0-9]{8}T[0-9]{6}\.[0-9]{6}Z-[0-9a-f]{8}$")
 ARCHIVE_MEMBERS = {"manifest.json", "database.sqlite3", "dnsmasq.conf", "nginx.conf"}
 MAX_MEMBER_BYTES = 1024 * 1024 * 1024
+MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -32,6 +44,7 @@ class BackupPaths:
     generated_nginx: Path
     generated_nginx_main: Path
     backup_dir: Path
+    apply_lock: Path = DEFAULT_LOCK_PATH
 
 
 def production_backup_paths() -> BackupPaths:
@@ -188,7 +201,7 @@ def import_backup_archive(payload: bytes, *, filename: str, paths: BackupPaths |
         raise ValueError('backup upload must be a .tar.gz or .tgz archive')
     if not payload:
         raise ValueError('backup upload is empty')
-    if len(payload) > (MAX_MEMBER_BYTES * 2):
+    if len(payload) > MAX_UPLOAD_BYTES:
         raise ValueError('backup upload is too large')
     paths.backup_dir.mkdir(parents=True, exist_ok=True)
     temp = paths.backup_dir / f'.upload-{secrets.token_hex(8)}.tar.gz'
@@ -270,10 +283,39 @@ def _extract_validated(backup_id: str, paths: BackupPaths, destination: Path) ->
     return manifest
 
 
-def _stage_configs(paths: BackupPaths, work: Path) -> None:
-    _atomic_write(paths.generated_dnsmasq, (work / 'dnsmasq.conf').read_text(encoding='utf-8'))
-    _atomic_write(paths.generated_nginx, (work / 'nginx.conf').read_text(encoding='utf-8'))
+def _sqlite_session(path: Path):
+    engine = create_engine(f'sqlite+pysqlite:///{path}')
+    return engine, Session(engine)
+
+
+def _render_from_database(database: Path, internal_proxy_ip: str) -> dict[str, str]:
+    """Render configuration from a backup's mappings rather than trusting its config files.
+
+    An uploaded archive's nginx.conf / dnsmasq.conf are arbitrary text; the
+    mappings go through the same validation as configuration created in the UI.
+    """
+    engine, db = _sqlite_session(database)
+    try:
+        return preview_config(db, internal_proxy_ip=internal_proxy_ip)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def _stage_configs(paths: BackupPaths, rendered: dict[str, str]) -> None:
+    _atomic_write(paths.generated_dnsmasq, rendered['dnsmasq_config'])
+    _atomic_write(paths.generated_nginx, rendered['nginx_config'])
     _atomic_write(paths.generated_nginx_main, _nginx_test_config(paths.generated_nginx))
+
+
+def _record_restored_revision(database: Path, rendered: dict[str, str]) -> None:
+    engine, db = _sqlite_session(database)
+    try:
+        revision = create_revision(db, rendered['dnsmasq_config'], rendered['nginx_config'], created_by=None)
+        mark_revision_status(db, revision, 'active')
+    finally:
+        db.close()
+        engine.dispose()
 
 
 def restore_backup(
@@ -281,17 +323,22 @@ def restore_backup(
     *,
     paths: BackupPaths | None = None,
     helper: PrivilegedHelper | None = None,
+    internal_proxy_ip: str | None = None,
 ) -> dict:
     paths = paths or production_backup_paths()
     helper = helper or PrivilegedHelper()
+    internal_proxy_ip = internal_proxy_ip or get_settings().internal_proxy_ip
+    if not internal_proxy_ip:
+        raise ValueError('DNS_MANAGER_INTERNAL_PROXY_IP is not configured')
     paths.backup_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.restore-', dir=paths.backup_dir) as tmp:
+    with _apply_lock(paths.apply_lock), tempfile.TemporaryDirectory(prefix='.restore-', dir=paths.backup_dir) as tmp:
         work = Path(tmp)
         manifest = _extract_validated(backup_id, paths, work)
         current_version = _alembic_version(paths.database)
         if manifest.get('alembic_version') != current_version:
             raise ValueError('backup schema version does not match current database')
-        _stage_configs(paths, work)
+        rendered = _render_from_database(work / 'database.sqlite3', internal_proxy_ip)
+        _stage_configs(paths, rendered)
         helper.validate()
 
         pre = create_backup(paths=paths, label=f'pre-restore:{backup_id}')
@@ -299,15 +346,10 @@ def restore_backup(
         _extract_validated(pre['backup_id'], paths, pre_work)
         try:
             _sqlite_restore(work / 'database.sqlite3', paths.database)
-            helper.apply()
+            _install_staged(helper, check='restore')
+            _record_restored_revision(paths.database, rendered)
         except Exception:
-            try:
-                _sqlite_restore(pre_work / 'database.sqlite3', paths.database)
-            finally:
-                try:
-                    helper.rollback()
-                except Exception:
-                    pass
+            _sqlite_restore(pre_work / 'database.sqlite3', paths.database)
             raise
     return {
         'restored_backup_id': backup_id,

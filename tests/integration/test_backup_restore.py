@@ -19,7 +19,23 @@ from app.services.auth_service import ALL_PERMISSIONS, create_session
 from app.services.backup_service import BackupPaths, create_backup, delete_backup, list_backups, restore_backup
 
 
-def make_sqlite(path: Path, marker: str) -> None:
+@pytest.fixture(autouse=True)
+def internal_proxy_ip(monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setenv('DNS_MANAGER_INTERNAL_PROXY_IP', '192.168.1.2')
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def make_sqlite(path: Path, marker: str, mappings: tuple[tuple[str, int], ...] = ()) -> None:
+    from app.models.mapping import Mapping
+    engine = create_engine(f'sqlite+pysqlite:///{path}')
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Mapping(domain=domain, upstream_scheme='http', upstream_host='10.0.0.5', upstream_port=port, enabled=True) for domain, port in mappings)
+        session.commit()
+    engine.dispose()
     with sqlite3.connect(path) as db:
         db.execute('CREATE TABLE marker (value TEXT NOT NULL)')
         db.execute('CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)')
@@ -38,6 +54,7 @@ def paths(tmp_path: Path) -> BackupPaths:
         generated_nginx=generated / 'nginx.conf',
         generated_nginx_main=generated / 'nginx-test.conf',
         backup_dir=tmp_path / 'backups',
+        apply_lock=tmp_path / 'apply.lock',
     )
 
 
@@ -59,6 +76,10 @@ class FakeHelper:
     def rollback(self):
         self.calls.append('rollback')
         return {'rolled_back': True}
+
+    def status(self):
+        self.calls.append('status')
+        return {'dnsmasq': 'active', 'nginx': 'active'}
 
 
 def test_backup_contains_consistent_database_configs_manifest_and_checksums(tmp_path):
@@ -110,12 +131,12 @@ def test_restore_rejects_tampered_backup_before_changing_live_database(tmp_path)
 
 def test_restore_creates_pre_restore_backup_and_restores_db_and_configs(tmp_path):
     p = paths(tmp_path)
-    make_sqlite(p.database, 'wanted')
+    make_sqlite(p.database, 'wanted', mappings=(('wanted.example.com', 8081),))
     p.live_dnsmasq.write_text('wanted dns\n')
     p.live_nginx.write_text('wanted nginx\n')
     wanted = create_backup(paths=p)
 
-    p.database.unlink(); make_sqlite(p.database, 'current')
+    p.database.unlink(); make_sqlite(p.database, 'current', mappings=(('current.example.com', 8082),))
     p.live_dnsmasq.write_text('current dns\n')
     p.live_nginx.write_text('current nginx\n')
     helper = FakeHelper()
@@ -125,11 +146,105 @@ def test_restore_creates_pre_restore_backup_and_restores_db_and_configs(tmp_path
     assert result['restored_backup_id'] == wanted['backup_id']
     assert result['pre_restore_backup_id'].startswith('BKP-')
     assert result['pre_restore_backup_id'] != wanted['backup_id']
-    assert helper.calls == ['validate', 'apply']
+    assert helper.calls == ['validate', 'apply', 'status']
     with sqlite3.connect(p.database) as db:
         assert db.execute('SELECT value FROM marker').fetchone()[0] == 'wanted'
-    assert p.generated_dnsmasq.read_text() == 'wanted dns\n'
-    assert p.generated_nginx.read_text() == 'wanted nginx\n'
+        # The applied configuration is recorded as the active revision.
+        active = db.execute("SELECT nginx_config FROM config_revisions WHERE status='active'").fetchall()
+    # Configuration is regenerated from the restored mappings, not copied from the archive.
+    assert 'address=/wanted.example.com/192.168.1.2' in p.generated_dnsmasq.read_text()
+    assert 'server_name wanted.example.com;' in p.generated_nginx.read_text()
+    assert 'current.example.com' not in p.generated_nginx.read_text()
+    assert active == [(p.generated_nginx.read_text(),)]
+
+
+def _forge_config_members(archive: Path, *, dnsmasq: bytes, nginx: bytes) -> None:
+    import hashlib, io
+    with tarfile.open(archive, 'r:gz') as tf:
+        payload = {name: tf.extractfile(name).read() for name in tf.getnames()}
+    payload['dnsmasq.conf'] = dnsmasq
+    payload['nginx.conf'] = nginx
+    manifest = json.loads(payload['manifest.json'])
+    manifest['sha256']['dnsmasq.conf'] = hashlib.sha256(dnsmasq).hexdigest()
+    manifest['sha256']['nginx.conf'] = hashlib.sha256(nginx).hexdigest()
+    payload['manifest.json'] = json.dumps(manifest).encode()
+    with tarfile.open(archive, 'w:gz') as tf:
+        for name, data in payload.items():
+            info = tarfile.TarInfo(name); info.size = len(data); info.mode = 0o600
+            tf.addfile(info, io.BytesIO(data))
+
+
+def test_restore_ignores_config_files_in_a_forged_archive(tmp_path):
+    p = paths(tmp_path)
+    make_sqlite(p.database, 'wanted', mappings=(('wanted.example.com', 8081),))
+    item = create_backup(paths=p)
+    # A self-consistent archive: the checksums match, but the configs are hostile.
+    _forge_config_members(
+        p.backup_dir / f"{item['backup_id']}.tar.gz",
+        dnsmasq=b'dhcp-script=/tmp/evil.sh\n',
+        nginx=b'server { listen 80; location / { root /; } }\n',
+    )
+
+    restore_backup(item['backup_id'], paths=p, helper=FakeHelper())
+
+    assert 'dhcp-script' not in p.generated_dnsmasq.read_text()
+    assert 'root /' not in p.generated_nginx.read_text()
+    assert 'server_name wanted.example.com;' in p.generated_nginx.read_text()
+
+
+def test_restore_rejects_invalid_mappings_in_a_forged_database(tmp_path):
+    p = paths(tmp_path)
+    make_sqlite(p.database, 'wanted')
+    with sqlite3.connect(p.database) as db:
+        columns = [row[1] for row in db.execute('PRAGMA table_info(mappings)')]
+        values = {'domain': 'evil.example.com', 'upstream_scheme': 'http', 'upstream_host': '10.0.0.5:80; include /etc/shadow',
+                  'upstream_port': 80, 'enabled': 1, 'websocket_enabled': 1, 'preserve_host': 1, 'tls_verify': 1, 'version': 1,
+                  'created_at': '2026-01-01 00:00:00', 'updated_at': '2026-01-01 00:00:00'}
+        values = {k: v for k, v in values.items() if k in columns}
+        db.execute(f"INSERT INTO mappings ({', '.join(values)}) VALUES ({', '.join('?' for _ in values)})", list(values.values()))
+        db.commit()
+    item = create_backup(paths=p)
+    helper = FakeHelper()
+
+    with pytest.raises(ValueError, match='upstream host'):
+        restore_backup(item['backup_id'], paths=p, helper=helper)
+    assert helper.calls == []
+
+
+def test_restore_requires_internal_proxy_ip(tmp_path, monkeypatch):
+    from app.config import get_settings
+    p = paths(tmp_path)
+    make_sqlite(p.database, 'wanted')
+    item = create_backup(paths=p)
+    monkeypatch.delenv('DNS_MANAGER_INTERNAL_PROXY_IP')
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match='INTERNAL_PROXY_IP'):
+        restore_backup(item['backup_id'], paths=p, helper=FakeHelper())
+
+
+def test_restore_waits_for_the_apply_lock(tmp_path):
+    import fcntl
+    from app.services.apply_service import ConfigLockedError
+    p = paths(tmp_path)
+    make_sqlite(p.database, 'wanted')
+    item = create_backup(paths=p)
+    p.apply_lock.touch()
+    with p.apply_lock.open('a+') as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ConfigLockedError):
+            restore_backup(item['backup_id'], paths=p, helper=FakeHelper())
+
+
+def test_backup_upload_api_rejects_oversized_body(monkeypatch, tmp_path):
+    import app.api.backups as backup_api
+    monkeypatch.setattr(backup_api, 'production_backup_paths', lambda: paths(tmp_path))
+    monkeypatch.setattr(backup_api, 'MAX_UPLOAD_BYTES', 1024)
+    client = make_api_env('super_admin')
+    try:
+        response = client.post('/api/v1/backups/upload', headers={'X-CSRF-Token': 'csrf-token', 'X-Backup-Filename': 'big.tar.gz'}, content=b'x' * 2048)
+        assert response.status_code == 422 and 'too large' in response.json()['detail']
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_restore_rolls_back_database_when_config_apply_fails(tmp_path):
