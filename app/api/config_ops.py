@@ -69,6 +69,8 @@ def validate(
             internal_proxy_ip=_internal_proxy_ip(),
             created_by=user.id,
         )
+    except ConfigLockedError:
+        raise HTTPException(status_code=409, detail="CONFIG_LOCKED")
     except Exception as exc:
         record_audit_event(
             db, user=user, action="CONFIG_VALIDATE_FAILED", object_type="config_revision",

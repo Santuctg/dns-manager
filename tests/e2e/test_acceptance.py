@@ -161,10 +161,11 @@ def acceptance_env(tmp_path, monkeypatch):
             created_by=created_by,
             helper=helper,
             generated_dir=generated,
+            lock_path=tmp_path / "apply.lock",
         )
 
     def api_rollback(db, *, revision_id):
-        return real_rollback(db, revision_id=revision_id, helper=helper, lock_path=tmp_path / "apply.lock")
+        return real_rollback(db, revision_id=revision_id, helper=helper, generated_dir=generated, lock_path=tmp_path / "apply.lock")
 
     monkeypatch.setattr(config_ops, "apply_pending_config", api_apply)
     monkeypatch.setattr(config_ops, "validate_pending_config", api_validate)

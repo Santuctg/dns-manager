@@ -115,15 +115,14 @@ def _health_ok(helper: PrivilegedHelper) -> bool:
     return status.get("dnsmasq") == "active" and status.get("nginx") == "active"
 
 
-def validate_pending_config(
+def _validate_unlocked(
     db: Session,
     *,
     internal_proxy_ip: str,
     created_by: int | None,
-    helper: PrivilegedHelper | None = None,
-    generated_dir: Path = DEFAULT_GENERATED_DIR,
+    helper: PrivilegedHelper,
+    generated_dir: Path,
 ) -> ConfigRevision:
-    helper = helper or PrivilegedHelper()
     preview = preview_config(db, internal_proxy_ip=internal_proxy_ip)
     revision = create_revision(
         db,
@@ -140,6 +139,40 @@ def validate_pending_config(
     return mark_revision_status(db, revision, "validated")
 
 
+def validate_pending_config(
+    db: Session,
+    *,
+    internal_proxy_ip: str,
+    created_by: int | None,
+    helper: PrivilegedHelper | None = None,
+    generated_dir: Path = DEFAULT_GENERATED_DIR,
+    lock_path: Path = DEFAULT_LOCK_PATH,
+) -> ConfigRevision:
+    # Staging rewrites the shared generated files, so it must not interleave with an apply.
+    with _apply_lock(lock_path):
+        return _validate_unlocked(
+            db,
+            internal_proxy_ip=internal_proxy_ip,
+            created_by=created_by,
+            helper=helper or PrivilegedHelper(),
+            generated_dir=generated_dir,
+        )
+
+
+def _install_staged(helper: PrivilegedHelper, *, check: str) -> None:
+    """Install the staged files; on any failure put back what was live before."""
+    try:
+        helper.apply()
+        if not _health_ok(helper):
+            raise RuntimeError(f"post-{check} health check failed")
+    except Exception as exc:
+        try:
+            helper.rollback()
+        except Exception as rollback_exc:
+            raise RuntimeError(f"{exc}; rollback failed: {rollback_exc}") from exc
+        raise
+
+
 def apply_pending_config(
     db: Session,
     *,
@@ -151,29 +184,32 @@ def apply_pending_config(
 ) -> ConfigRevision:
     helper = helper or PrivilegedHelper()
     with _apply_lock(lock_path):
-        revision = validate_pending_config(
+        revision = _validate_unlocked(
             db,
             internal_proxy_ip=internal_proxy_ip,
             created_by=created_by,
             helper=helper,
             generated_dir=generated_dir,
         )
-        applied_started = False
         try:
-            applied_started = True
-            helper.apply()
-            if not _health_ok(helper):
-                raise RuntimeError("post-apply health check failed")
-        except Exception as exc:
-            if applied_started:
-                try:
-                    helper.rollback()
-                except Exception as rollback_exc:
-                    mark_revision_status(db, revision, "failed")
-                    raise RuntimeError(f"{exc}; rollback failed: {rollback_exc}") from exc
+            _install_staged(helper, check="apply")
+        except Exception:
             mark_revision_status(db, revision, "failed")
             raise
         return mark_revision_status(db, revision, "active")
+
+
+def _rollback_target(db: Session, current: ConfigRevision) -> ConfigRevision | None:
+    older = select(ConfigRevision).where(ConfigRevision.id < current.id).order_by(ConfigRevision.id.desc())
+    target = db.scalars(older.where(ConfigRevision.status == "superseded")).first()
+    if target is not None:
+        return target
+    # Revisions replaced before "superseded" existed were all recorded as
+    # "rolled_back"; fall back to them only when no newer history exists.
+    has_superseded = db.scalar(select(ConfigRevision.id).where(ConfigRevision.status == "superseded").limit(1))
+    if has_superseded is not None:
+        return None
+    return db.scalars(older.where(ConfigRevision.status == "rolled_back")).first()
 
 
 def rollback_revision(
@@ -181,6 +217,7 @@ def rollback_revision(
     *,
     revision_id: int,
     helper: PrivilegedHelper | None = None,
+    generated_dir: Path = DEFAULT_GENERATED_DIR,
     lock_path: Path = DEFAULT_LOCK_PATH,
 ) -> ConfigRevision:
     helper = helper or PrivilegedHelper()
@@ -191,16 +228,15 @@ def rollback_revision(
         if current.status != "active":
             raise ValueError("revision is not active")
 
-        previous = db.scalars(
-            select(ConfigRevision)
-            .where(ConfigRevision.id < current.id, ConfigRevision.status == "rolled_back")
-            .order_by(ConfigRevision.id.desc())
-        ).first()
+        previous = _rollback_target(db, current)
         if previous is None:
             raise LookupError("previous revision not found")
 
-        helper.rollback()
-        if not _health_ok(helper):
-            raise RuntimeError("post-rollback health check failed")
+        # Re-install the previous revision's own stored configuration, so what is
+        # live always matches the revision marked active, however many times in a
+        # row this runs. The helper's single known-good copy is only the safety net.
+        _stage_revision(previous, generated_dir)
+        helper.validate()
+        _install_staged(helper, check="rollback")
         mark_revision_status(db, current, "rolled_back")
         return mark_revision_status(db, previous, "active")
