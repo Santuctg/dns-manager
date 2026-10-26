@@ -26,12 +26,12 @@ For first-time installations, the database backup command only applies if the da
 
 ```bash
 cd /root
-unzip -t dns-manager-0.7.0-documented.zip
+unzip -t dns-manager-0.7.1-documented.zip
 rm -rf /tmp/dnsmgr-release
 mkdir -p /tmp/dnsmgr-release
-unzip -q dns-manager-0.7.0-documented.zip -d /tmp/dnsmgr-release
-cat /tmp/dnsmgr-release/dns-manager/VERSION    # expected: 0.7.0
-DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP> \
+unzip -q dns-manager-0.7.1-documented.zip -d /tmp/dnsmgr-release
+cat /tmp/dnsmgr-release/dns-manager/VERSION    # expected: 0.7.1
+DNS_MANAGER_INTERNAL_PROXY_IP=<HOST_LAN_IP> \
   bash /tmp/dnsmgr-release/dns-manager/packaging/install.sh
 ```
 
@@ -41,15 +41,17 @@ DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP> \
 apt-get install -y git    # only if git is missing
 cd /root
 rm -rf /tmp/dnsmgr-release
-git clone --depth 1 --branch v0.7.0 \
+git clone --depth 1 --branch v0.7.1 \
   https://github.com/Santuctg/dns-manager.git /tmp/dnsmgr-release
 rm -rf /tmp/dnsmgr-release/.git
-cat /tmp/dnsmgr-release/VERSION    # expected: 0.7.0
-DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP> \
+cat /tmp/dnsmgr-release/VERSION    # expected: 0.7.1
+DNS_MANAGER_INTERNAL_PROXY_IP=<HOST_LAN_IP> \
   bash /tmp/dnsmgr-release/packaging/install.sh
 ```
 
-Pinning `--branch v0.7.0` installs exactly the released source; use `main` only for development. The installer copies the checkout into `/opt/dns-manager/dns-manager`, so the source directory can stay under `/tmp`.
+Pinning `--branch v0.7.1` installs exactly the released source; use `main` only for development. The installer copies the checkout into `/opt/dns-manager/dns-manager`, so the source directory can stay under `/tmp`.
+
+`DNS_MANAGER_INTERNAL_PROXY_IP` must be the host's own LAN address (check with `ip -4 addr show scope global`), not a loopback or documentation address. On an upgrade, reuse the value the existing installation already uses; the installer validates dnsmasq and aborts before restarting services if the address is unusable.
 
 The installer installs Python packages system-wide (without a virtualenv), performs database migrations, manages service units and restarts the app. A successful installer waits for `/health`. Review package installation output for warnings.
 
@@ -64,7 +66,7 @@ ufw status verbose
 journalctl -u dns-manager -n 100 --no-pager
 ```
 
-Expected version `0.7.0`; health typically returns `{"status":"ok","database":"ok"}`. Service health does not prove public DNS routing or firewall reachability; test those from appropriate client networks.
+Expected version `0.7.1`; health typically returns `{"status":"ok","database":"ok"}`. Service health does not prove public DNS routing or firewall reachability; test those from appropriate client networks.
 
 ## First-time account setup
 

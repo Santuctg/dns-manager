@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.0 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.1 console (requires Playwright + Chromium).
 
 Run with:
 

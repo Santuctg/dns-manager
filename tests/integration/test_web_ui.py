@@ -1,4 +1,4 @@
-"""Console shell, page routing and permission contracts for the 0.7.0 UI."""
+"""Console shell, page routing and permission contracts for the 0.7.1 UI."""
 
 import json
 from pathlib import Path

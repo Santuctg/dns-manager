@@ -37,7 +37,7 @@ Tests should run in an isolated test environment rather than the production host
 
 ### Optional browser smoke test
 
-The console smoke test renders the sign-in page and every console page at 1440 px and 390 px in both themes and both languages. It fails on horizontal overflow, missing bundled fonts, raw translation keys and console errors.
+The console smoke test renders the sign-in page and every console page at 1440 px and 390 px in both themes and both languages. It fails on horizontal overflow, visible elements escaping the viewport outside a scroll container, closed dialogs that are still rendered, missing bundled fonts, raw translation keys and console errors.
 
 The test is marked `browser` and skips automatically when Playwright or Chromium is not installed, so it is not part of the runtime requirements. Install it only on a development machine:
 

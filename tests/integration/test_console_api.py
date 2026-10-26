@@ -1,4 +1,4 @@
-"""API additions for the 0.7.0 console: ssl_status, pending and revisions."""
+"""API additions for the 0.7.1 console: ssl_status, pending and revisions."""
 
 from datetime import datetime, timedelta, timezone
 
