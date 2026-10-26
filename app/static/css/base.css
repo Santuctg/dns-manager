@@ -47,6 +47,12 @@
   box-sizing: border-box;
 }
 
+/* Author display rules below (side panels, action modal) must not resurrect
+   closed dialogs: the UA rule has lower priority than any author rule. */
+dialog:not([open]) {
+  display: none;
+}
+
 html {
   height: 100%;
   background: var(--surface-1);

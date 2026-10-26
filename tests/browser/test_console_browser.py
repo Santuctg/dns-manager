@@ -250,6 +250,14 @@ def _visit(page, context, errors: list[str], *, base_url: str, page_name: str, w
                     offscreen.push(`${element.tagName}.${String(element.className)} ${Math.round(rect.left)}..${Math.round(rect.right)}`);
                 }
             });
+            const strayDialogs = [];
+            document.querySelectorAll('dialog').forEach((element) => {
+                if (element.open) return;
+                const style = getComputedStyle(element);
+                if (style.display !== 'none') {
+                    strayDialogs.push(`${element.className || 'dialog'} display:${style.display}`);
+                }
+            });
             return {
                 page: document.body.dataset.page || '',
                 lang: document.documentElement.lang,
@@ -262,6 +270,7 @@ def _visit(page, context, errors: list[str], *, base_url: str, page_name: str, w
                 bengali: document.fonts.check('400 16px "Noto Sans Bengali"'),
                 text: parts.join('\\n'),
                 offscreen: offscreen.slice(0, 5),
+                strayDialogs,
             };
         }"""
     )
@@ -282,6 +291,8 @@ def _visit(page, context, errors: list[str], *, base_url: str, page_name: str, w
         problems.append(f"{label}: Noto Sans Bengali did not load")
     for element in state["offscreen"]:
         problems.append(f"{label}: element outside the viewport: {element}")
+    for dialog in state["strayDialogs"]:
+        problems.append(f"{label}: closed dialog is still rendered: {dialog}")
 
     for prefix in RAW_KEY_PREFIXES:
         match = RAW_KEY_RE.search(state["text"])
