@@ -124,9 +124,26 @@ This is a **host-installed application**, **not a Docker Compose stack**. Review
 
 ## 🚀 Installation / Upgrade
 
-### 1. Download the versioned package
+### 1. Get the 0.7.0 source
 
-Download the ZIP asset from **[Releases](https://github.com/Santuctg/dns-manager/releases/tag/v0.7.0)** and transfer it to the target server. For a fresh install, follow the installation guide for initial account bootstrap and host preparation.
+Choose one method.
+
+**A. Release ZIP (no git on the host):**
+
+Download the ZIP asset from **[Releases](https://github.com/Santuctg/dns-manager/releases/tag/v0.7.0)** and transfer it to the target server.
+
+**B. Clone the tagged source from GitHub:**
+
+```bash
+cd /root
+rm -rf /tmp/dnsmgr-release
+git clone --depth 1 --branch v0.7.0 \
+  https://github.com/Santuctg/dns-manager.git /tmp/dnsmgr-release
+rm -rf /tmp/dnsmgr-release/.git
+cat /tmp/dnsmgr-release/VERSION    # expected: 0.7.0
+```
+
+Install `git` first (`apt-get install -y git`) if it is missing. The installer copies the checkout into `/opt/dns-manager/dns-manager`, so the source directory can stay under `/tmp`.
 
 ### 2. Back up an existing installation
 
@@ -147,15 +164,27 @@ Also back up the relevant Nginx, dnsmasq and application settings outside this w
 
 ### 3. Inspect and install
 
+For the ZIP method, extract the package (removing any stale extraction first) and run the installer:
+
 ```bash
 cd /root
 unzip -t dns-manager-0.7.0-documented.zip
+rm -rf /tmp/dnsmgr-release
 mkdir -p /tmp/dnsmgr-release
 unzip -q dns-manager-0.7.0-documented.zip -d /tmp/dnsmgr-release
+cat /tmp/dnsmgr-release/dns-manager/VERSION    # expected: 0.7.0
 
 # Replace the example with the DNS/proxy address intended for your host:
 DNS_MANAGER_INTERNAL_PROXY_IP=192.0.2.10 \
   bash /tmp/dnsmgr-release/dns-manager/packaging/install.sh
+```
+
+For the git clone method, the checkout is already the package root:
+
+```bash
+# Replace the example with the DNS/proxy address intended for your host:
+DNS_MANAGER_INTERNAL_PROXY_IP=192.0.2.10 \
+  bash /tmp/dnsmgr-release/packaging/install.sh
 ```
 
 **Important:** `192.0.2.10` is an illustrative documentation address, **not** a default suitable for deployment. Set the correct local/public listen address for your network. The installer can install packages, migrate the database and modify/restart services.

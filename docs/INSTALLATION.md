@@ -22,13 +22,34 @@ For first-time installations, the database backup command only applies if the da
 
 ## Install or upgrade
 
+### Option A: release ZIP
+
 ```bash
 cd /root
 unzip -t dns-manager-0.7.0-documented.zip
+rm -rf /tmp/dnsmgr-release
 mkdir -p /tmp/dnsmgr-release
 unzip -q dns-manager-0.7.0-documented.zip -d /tmp/dnsmgr-release
-DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP>   bash /tmp/dnsmgr-release/dns-manager/packaging/install.sh
+cat /tmp/dnsmgr-release/dns-manager/VERSION    # expected: 0.7.0
+DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP> \
+  bash /tmp/dnsmgr-release/dns-manager/packaging/install.sh
 ```
+
+### Option B: clone the tagged source from GitHub
+
+```bash
+apt-get install -y git    # only if git is missing
+cd /root
+rm -rf /tmp/dnsmgr-release
+git clone --depth 1 --branch v0.7.0 \
+  https://github.com/Santuctg/dns-manager.git /tmp/dnsmgr-release
+rm -rf /tmp/dnsmgr-release/.git
+cat /tmp/dnsmgr-release/VERSION    # expected: 0.7.0
+DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP> \
+  bash /tmp/dnsmgr-release/packaging/install.sh
+```
+
+Pinning `--branch v0.7.0` installs exactly the released source; use `main` only for development. The installer copies the checkout into `/opt/dns-manager/dns-manager`, so the source directory can stay under `/tmp`.
 
 The installer installs Python packages system-wide (without a virtualenv), performs database migrations, manages service units and restarts the app. A successful installer waits for `/health`. Review package installation output for warnings.
 
