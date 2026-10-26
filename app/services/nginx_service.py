@@ -111,3 +111,67 @@ def render_nginx_config(
         blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks).rstrip() + "\n"
+
+
+def render_https_vhost(
+    domain: str,
+    mapping: Mapping,
+    *,
+    redirect_http: bool = True,
+    letsencrypt_root: str = "/etc/letsencrypt",
+) -> str:
+    """Render the HTTPS vhost that the helper writes for one mapping.
+
+    Mirrors ``privileged.ssl_helper.SslHelperOps._nginx_text`` so the console can
+    show the exact file without asking the privileged helper to write it.
+    """
+    site = normalize_domain(domain)
+    scheme = _validated_scheme(mapping.upstream_scheme)
+    host = validate_upstream_host(mapping.upstream_host)
+    port = _validated_port(mapping.upstream_port)
+    timeout = int(mapping.custom_timeout or 60)
+
+    blocks: list[str] = []
+    if redirect_http:
+        blocks.append(
+            f"server {{ listen 80; server_name {site}; return 301 https://$host$request_uri; }}"
+        )
+
+    lines = [
+        "server {",
+        "    listen 443 ssl;",
+        f"    server_name {site};",
+        f"    ssl_certificate {letsencrypt_root}/live/{site}/fullchain.pem;",
+        f"    ssl_certificate_key {letsencrypt_root}/live/{site}/privkey.pem;",
+        "    ssl_protocols TLSv1.2 TLSv1.3;",
+        "    location / {",
+        f"        proxy_pass {scheme}://{_url_host(host)}:{port};",
+        "        proxy_http_version 1.1;",
+    ]
+    if mapping.preserve_host:
+        lines.append("        proxy_set_header Host $host;")
+    lines.extend(
+        [
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            "        proxy_set_header X-Forwarded-Proto https;",
+        ]
+    )
+    if mapping.websocket_enabled:
+        lines.extend(
+            [
+                "        proxy_set_header Upgrade $http_upgrade;",
+                '        proxy_set_header Connection "upgrade";',
+            ]
+        )
+    lines.extend(
+        [
+            "        proxy_connect_timeout 15s;",
+            "        proxy_send_timeout 60s;",
+            f"        proxy_read_timeout {timeout}s;",
+            "    }",
+            "}",
+        ]
+    )
+    blocks.append("\n".join(lines))
+    return "\n".join(blocks) + "\n"

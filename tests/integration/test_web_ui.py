@@ -1,4 +1,8 @@
+"""Console shell, page routing and permission contracts for the 0.7.0 UI."""
+
+import json
 from pathlib import Path
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -10,35 +14,51 @@ from app.models.auth import Permission, Role, User
 from app.security import hash_password
 from app.services.auth_service import ALL_PERMISSIONS, ADMIN_PERMISSIONS, VIEWER_PERMISSIONS, create_session
 
+ROOT = Path(__file__).resolve().parents[2]
+
+PAGES = {
+    "dashboard": "system.view",
+    "mappings": "mapping.view",
+    "firewall": "firewall.manage",
+    "ssl": None,
+    "system": "system.view",
+    "backups": "backup.create",
+    "users": "user.view",
+    "roles": "role.view",
+    "audit": "audit.view",
+}
+
 
 def make_web_env(role_name: str | None = None):
     engine = create_engine(
-        'sqlite+pysqlite:///:memory:',
-        connect_args={'check_same_thread': False},
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
     raw_session = None
+    user_id = None
     with Session(engine) as db:
         perms = {name: Permission(name=name) for name in sorted(ALL_PERMISSIONS)}
         db.add_all(perms.values())
         roles = {
-            'super_admin': Role(name='super_admin', permissions=[perms[n] for n in sorted(ALL_PERMISSIONS)]),
-            'admin': Role(name='admin', permissions=[perms[n] for n in sorted(ADMIN_PERMISSIONS)]),
-            'viewer': Role(name='viewer', permissions=[perms[n] for n in sorted(VIEWER_PERMISSIONS)]),
+            "super_admin": Role(name="super_admin", permissions=[perms[n] for n in sorted(ALL_PERMISSIONS)]),
+            "admin": Role(name="admin", permissions=[perms[n] for n in sorted(ADMIN_PERMISSIONS)]),
+            "viewer": Role(name="viewer", permissions=[perms[n] for n in sorted(VIEWER_PERMISSIONS)]),
         }
         db.add_all(roles.values())
         db.flush()
         if role_name:
             user = User(
-                username=f'{role_name}-user',
-                email=f'{role_name}@example.com',
-                password_hash=hash_password('very-secure-password'),
+                username=f"{role_name}-user",
+                email=f"{role_name}@example.com",
+                password_hash=hash_password("very-secure-password"),
                 role=roles[role_name],
             )
             db.add(user)
             db.commit()
-            raw_session = create_session(db, user, 'csrf-token')
+            user_id = user.id
+            raw_session = create_session(db, user, "csrf-token")
         else:
             db.commit()
 
@@ -47,10 +67,12 @@ def make_web_env(role_name: str | None = None):
             yield db
 
     app.dependency_overrides[get_db] = override_db
-    client = TestClient(app, base_url='https://testserver', follow_redirects=False)
+    client = TestClient(app, base_url="https://testserver", follow_redirects=False)
     if raw_session:
-        client.cookies.set('dns_manager_session', raw_session)
-        client.cookies.set('dns_manager_csrf', 'csrf-token')
+        client.cookies.set("dns_manager_session", raw_session)
+        client.cookies.set("dns_manager_csrf", "csrf-token")
+    client.engine = engine
+    client.user_id = user_id
     return client
 
 
@@ -58,19 +80,29 @@ def cleanup():
     app.dependency_overrides.clear()
 
 
-def test_public_login_page_and_root_redirect():
+def test_public_login_page_uses_local_console_assets_only():
     client = make_web_env()
     try:
-        root = client.get('/')
+        root = client.get("/")
         assert root.status_code == 303
-        assert root.headers['location'] == '/login'
-        login = client.get('/login')
+        assert root.headers["location"] == "/login"
+
+        login = client.get("/login")
         assert login.status_code == 200
-        assert 'DNS Manager' in login.text
-        assert 'Sign in' in login.text
-        assert '/static/app.js' in login.text
-        assert 'https://' not in login.text
-        assert 'http://' not in login.text
+        html = login.text
+        assert 'data-page="login"' in html
+        assert 'class="login-shell"' in html
+        for asset in ("tokens.css", "base.css", "components.css", "pages.css"):
+            assert f"/static/css/{asset}" in html
+        assert "/static/js/core.js" in html
+        assert "/static/js/pages/login.js" in html
+        assert "/static/app.js" not in html
+        assert "/static/app.css" not in html
+        assert 'id="i18n-data"' in html
+        assert "data-lang-switch" in html
+        assert "data-theme-switch" in html
+        assert "https://" not in html
+        assert "http://" not in html
     finally:
         cleanup()
 
@@ -78,589 +110,316 @@ def test_public_login_page_and_root_redirect():
 def test_unauthenticated_app_page_redirects_to_login_with_next():
     client = make_web_env()
     try:
-        response = client.get('/app/dashboard')
+        response = client.get("/app/dashboard")
         assert response.status_code == 303
-        assert response.headers['location'] == '/login?next=/app/dashboard'
+        assert response.headers["location"] == "/login?next=/app/dashboard"
     finally:
         cleanup()
 
 
-def test_viewer_gets_read_only_navigation_and_no_write_controls():
-    client = make_web_env('viewer')
+def test_every_console_page_renders_for_super_admin():
+    client = make_web_env("super_admin")
     try:
-        response = client.get('/app/mappings')
+        for page in PAGES:
+            response = client.get(f"/app/{page}")
+            assert response.status_code == 200, page
+            html = response.text
+            assert f'data-page="{page}"' in html
+            assert "/static/js/core.js" in html
+            assert f"/static/js/pages/{page}.js" in html
+            assert 'class="app-shell"' in html
+            assert "data-pending-banner" in html
+            assert "data-mobile-sheet" in html
+            assert "/static/app.js" not in html
+            assert "/static/app.css" not in html
+    finally:
+        cleanup()
+
+
+def test_unknown_app_page_redirects_to_dashboard():
+    client = make_web_env("super_admin")
+    try:
+        response = client.get("/app/does-not-exist")
+        assert response.status_code == 303
+        assert response.headers["location"] == "/app/dashboard"
+    finally:
+        cleanup()
+
+
+def test_viewer_navigation_is_read_only_and_hides_admin_pages():
+    client = make_web_env("viewer")
+    try:
+        response = client.get("/app/mappings")
         assert response.status_code == 200
-        assert 'Mappings' in response.text
-        assert 'Audit' in response.text
-        assert 'System' in response.text
-        assert 'data-action="mapping-create"' not in response.text
-        assert 'data-action="config-apply"' not in response.text
-        assert '>Users<' not in response.text
-        assert '>Roles<' not in response.text
+        html = response.text
+        assert 'href="/app/mappings"' in html
+        assert 'href="/app/audit"' in html
+        assert 'href="/app/users"' not in html
+        assert 'href="/app/roles"' not in html
+        assert "data-mapping-create" not in html
+        assert 'data-can-apply="false"' in html
+        assert 'data-can-mapping-create="false"' in html
+
+        for page in ("firewall", "ssl", "backups", "users", "roles"):
+            denied = client.get(f"/app/{page}")
+            assert denied.status_code == 303, page
+            assert denied.headers["location"] == "/app/dashboard?error=permission"
     finally:
         cleanup()
 
 
-def test_admin_sees_mapping_apply_and_user_controls_but_not_role_manage():
-    client = make_web_env('admin')
+def test_admin_sees_mapping_and_user_controls_but_not_role_or_ssl_admin():
+    client = make_web_env("admin")
     try:
-        mappings = client.get('/app/mappings')
+        mappings = client.get("/app/mappings")
         assert mappings.status_code == 200
-        assert 'data-action="mapping-create"' in mappings.text
-        assert 'data-action="config-apply"' in mappings.text
+        assert "data-mapping-create" in mappings.text
+        assert 'data-can-apply="true"' in mappings.text
+        assert "/app/ssl" not in mappings.text
 
-        users = client.get('/app/users')
+        users = client.get("/app/users")
         assert users.status_code == 200
-        assert 'data-action="user-create"' in users.text
+        assert "data-user-add" in users.text
 
-        roles = client.get('/app/roles')
+        roles = client.get("/app/roles")
         assert roles.status_code == 200
-        assert 'data-action="role-permissions-save"' not in roles.text
+        assert "data-role-form" not in roles.text
+
+        assert client.get("/app/ssl").status_code == 303
+        assert client.get("/app/backups").status_code == 303
+        assert client.get("/app/firewall").status_code == 303
     finally:
         cleanup()
 
 
-def test_super_admin_sees_all_management_navigation_and_role_controls():
-    client = make_web_env('super_admin')
+def test_super_admin_sees_every_group_and_ssl_controls():
+    client = make_web_env("super_admin")
     try:
-        response = client.get('/app/roles')
+        response = client.get("/app/roles")
         assert response.status_code == 200
-        assert '>Users<' in response.text
-        assert '>Roles<' in response.text
-        assert 'data-action="role-permissions-save"' in response.text
-        assert 'data-can-rollback="true"' in response.text
+        html = response.text
+        for page in PAGES:
+            assert f'href="/app/{page}"' in html
+        for group in ("Overview", "Routing", "Security", "Operations", "Admin"):
+            assert group in html
+        assert "data-role-form" in html
+        assert 'data-can-rollback="true"' in html
+
+        ssl = client.get("/app/ssl")
+        assert ssl.status_code == 200
+        assert "data-ssl-table" in ssl.text
+        assert "data-ssl-add" in ssl.text
     finally:
         cleanup()
 
 
-def test_dashboard_audit_and_system_have_expected_data_hooks():
-    client = make_web_env('super_admin')
+def test_page_specific_hooks_exist():
+    client = make_web_env("super_admin")
     try:
-        dashboard = client.get('/app/dashboard')
-        assert dashboard.status_code == 200
-        assert 'data-page="dashboard"' in dashboard.text
-        assert 'data-dashboard-status' in dashboard.text
-        assert 'data-backend-summary' in dashboard.text
+        dashboard = client.get("/app/dashboard").text
+        assert "data-summary-services" in dashboard
+        assert "data-summary-mappings" in dashboard
+        assert "data-summary-certificates" in dashboard
+        assert "data-attention-list" in dashboard
+        assert "data-recent-events" in dashboard
+        assert "data-sparkline" in dashboard
 
-        audit = client.get('/app/audit')
-        assert audit.status_code == 200
-        assert 'data-page="audit"' in audit.text
-        assert 'data-audit-table' in audit.text
+        mappings = client.get("/app/mappings").text
+        for hook in (
+            "data-mapping-form",
+            "data-mapping-panel",
+            "data-mapping-detail-panel",
+            "data-mappings-table",
+            "data-mapping-filter",
+            "data-mapping-search",
+        ):
+            assert hook in mappings
 
-        system = client.get('/app/system')
-        assert system.status_code == 200
-        assert 'data-page="system"' in system.text
-        assert 'data-config-preview' in system.text
-        assert 'data-action="config-validate"' in system.text
+        system = client.get("/app/system").text
+        for hook in (
+            "data-configuration",
+            "data-diff-dnsmasq",
+            "data-diff-nginx",
+            "data-revisions-table",
+            "data-services-grid",
+            "data-system=\"dns_safety\"",
+            "data-system=\"dns_bind\"",
+            "data-monitor-interfaces",
+        ):
+            assert hook in system
     finally:
         cleanup()
 
 
-def test_local_static_assets_are_served_and_reference_no_external_resources():
+def test_firewall_page_has_confirmation_bar_and_no_raw_command_input():
+    client = make_web_env("super_admin")
+    try:
+        html = client.get("/app/firewall").text
+        for hook in (
+            "data-firewall-rules",
+            "data-firewall-panel",
+            "data-firewall-source-list",
+            "data-firewall-source-add",
+            "data-firewall-confirm-bar",
+            "data-firewall-countdown",
+            "data-firewall-confirm",
+            "data-firewall-rollback-now",
+        ):
+            assert hook in html
+        assert 'name="command"' not in html
+        assert "never accepts raw shell commands" in html
+    finally:
+        cleanup()
+
+
+def test_backups_page_has_typed_restore_confirmation():
+    client = make_web_env("super_admin")
+    try:
+        html = client.get("/app/backups").text
+        for hook in (
+            "data-backups-table",
+            "data-backup-create",
+            "data-backup-upload",
+            "data-backup-upload-dialog",
+            "data-backup-restore-panel",
+            "data-backup-restore-confirm",
+        ):
+            assert hook in html
+        assert 'accept=".tar.gz,.tgz,application/gzip"' in html
+    finally:
+        cleanup()
+
+
+def test_ssl_page_has_primary_action_table_and_manual_panel():
+    client = make_web_env("super_admin")
+    try:
+        html = client.get("/app/ssl").text
+        for hook in (
+            "data-ssl-table",
+            "data-ssl-add",
+            "data-ssl-panel",
+            "data-ssl-form",
+            "data-ssl-manual-panel",
+            "data-ssl-token-field",
+        ):
+            assert hook in html
+        assert 'type="password"' in html
+    finally:
+        cleanup()
+
+
+def test_global_modal_controls_never_submit_and_support_focus_handling():
+    client = make_web_env("super_admin")
+    try:
+        for path in ("/app/mappings", "/app/users", "/app/roles", "/app/firewall"):
+            html = client.get(path).text
+            assert 'value="cancel"' not in html
+            assert 'type="button" data-panel-close' in html
+        base = client.get("/app/dashboard").text
+        assert 'aria-labelledby="action-modal-title"' in base
+        assert 'aria-describedby="action-modal-description"' in base
+        assert "data-action-modal-confirm" in base
+        assert "data-action-modal-spinner" in base
+    finally:
+        cleanup()
+
+
+def test_language_theme_and_accept_language_render_on_the_server():
     client = make_web_env()
     try:
-        css = client.get('/static/app.css')
-        js = client.get('/static/app.js')
-        assert css.status_code == 200
-        assert js.status_code == 200
-        for body in (css.text, js.text):
-            assert 'https://' not in body
-            assert 'http://' not in body
-            assert 'cdn.' not in body.lower()
-        assert 'X-CSRF-Token' in js.text
-        assert '/api/v1/auth/login' in js.text
-        assert '/api/v1/mappings' in js.text
-        assert '/api/v1/users' in js.text
-        assert '/api/v1/roles' in js.text
-        assert '/api/v1/audit' in js.text
-        assert '/api/v1/system/status' in js.text
+        english = client.get("/login")
+        assert '<html lang="en" data-theme="dark">' in english.text
+
+        client.cookies.set("dns_manager_lang", "bn")
+        client.cookies.set("dns_manager_theme", "light")
+        bengali = client.get("/login")
+        assert '<html lang="bn" data-theme="light">' in bengali.text
+        assert "সাইন ইন" in bengali.text or "লগ ইন" in bengali.text
+        assert 'aria-pressed="true" data-lang-switch="bn"' in bengali.text or 'data-lang-switch="bn" aria-pressed="true"' in bengali.text
+
+        client.cookies.clear()
+        header = client.get("/login", headers={"accept-language": "bn-BD,bn;q=0.9,en;q=0.5"})
+        assert '<html lang="bn" data-theme="dark">' in header.text
+
+        english_header = client.get("/login", headers={"accept-language": "fr-FR,en;q=0.8"})
+        assert '<html lang="en" data-theme="dark">' in english_header.text
     finally:
         cleanup()
 
 
-def test_system_backup_controls_are_super_admin_only():
-    super_client = make_web_env('super_admin')
+def test_server_embeds_only_the_active_dictionary():
+    client = make_web_env("super_admin")
     try:
-        system = super_client.get('/app/system')
-        assert system.status_code == 200
-        assert 'data-backup-section' in system.text
-        assert 'data-action="backup-create"' in system.text
-        assert 'data-backups-table' in system.text
-    finally:
-        cleanup()
+        en = client.get("/app/dashboard").text
+        en_blob = en.split('id="i18n-data">', 1)[1].split("</script>", 1)[0]
+        en_dict = json.loads(en_blob)
+        assert en_dict["nav.dashboard"] == "Dashboard"
 
-    admin_client = make_web_env('admin')
-    try:
-        system = admin_client.get('/app/system')
-        assert system.status_code == 200
-        assert 'data-backup-section' not in system.text
-        assert 'data-action="backup-create"' not in system.text
-    finally:
-        cleanup()
-
-
-def test_modal_cancel_and_close_controls_never_submit_forms():
-    client = make_web_env('super_admin')
-    try:
-        for path in ('/app/mappings', '/app/users', '/app/roles'):
-            response = client.get(path)
-            assert response.status_code == 200
-            html = response.text
-            assert 'value="cancel"' not in html
-            assert 'type="button" data-dialog-close' in html
-
-        js = client.get('/static/app.js')
-        assert js.status_code == 200
-        assert "[data-dialog-close]" in js.text
-        assert ".closest('dialog')?.close()" in js.text
+        client.cookies.set("dns_manager_lang", "bn")
+        bn = client.get("/app/dashboard").text
+        bn_blob = bn.split('id="i18n-data">', 1)[1].split("</script>", 1)[0]
+        bn_dict = json.loads(bn_blob)
+        assert bn_dict["nav.dashboard"] != "Dashboard"
+        assert set(en_dict) == set(bn_dict)
     finally:
         cleanup()
 
 
-def test_system_backup_delete_ui_is_super_admin_only_and_confirms_irreversible_delete():
-    client = make_web_env('super_admin')
+def test_static_console_assets_are_served_offline():
+    client = make_web_env()
     try:
-        system = client.get('/app/system')
-        assert system.status_code == 200
-        js = client.get('/static/app.js')
-        assert js.status_code == 200
-        assert 'data-delete-backup' in js.text
-        assert 'This cannot be undone' in js.text
-        assert "method:'DELETE'" in js.text
-        assert 'Backup deleted.' in js.text
-    finally:
-        cleanup()
+        assets = [
+            "/static/css/tokens.css",
+            "/static/css/base.css",
+            "/static/css/components.css",
+            "/static/css/pages.css",
+            "/static/js/core.js",
+            "/static/icons.svg",
+            "/static/i18n/en.json",
+            "/static/i18n/bn.json",
+            "/static/fonts/IBMPlexSans-400.woff2",
+            "/static/fonts/IBMPlexSans-600.woff2",
+            "/static/fonts/IBMPlexMono-400.woff2",
+            "/static/fonts/IBMPlexMono-600.woff2",
+            "/static/fonts/NotoSansBengali-400.woff2",
+            "/static/fonts/NotoSansBengali-600.woff2",
+            "/static/fonts/LICENSE-IBMPlex.txt",
+            "/static/fonts/LICENSE-NotoSansBengali.txt",
+        ]
+        assets.extend(f"/static/js/pages/{page}.js" for page in PAGES)
+        for asset in assets:
+            response = client.get(asset)
+            assert response.status_code == 200, asset
 
-def test_system_template_contains_superadmin_ssl_controls():
-    html = open('app/templates/system.html').read()
-    assert 'SSL / Certificates' in html
-    assert 'data-ssl-section' in html
-    assert 'type="password"' in html
-    assert 'data-action="ssl-issue"' in html
-
-def test_ssl_manual_ui_polls_for_challenge_without_restarting_certbot():
-    js = open('app/static/app.js').read()
-    assert 'pollManual' in js
-    assert 'manual-start' in js
-
-
-def test_ssl_ui_hides_manual_challenge_for_existing_issued_certificate():
-    client = make_web_env('super_admin')
-    try:
-        js = client.get('/static/app.js')
-        assert js.status_code == 200
-        assert "c.provider==='manual'&&['NOT_ISSUED','ERROR'].includes(c.status)" in js.text
-        assert "Start DNS challenge" in js.text
-        assert "const manualStart=c.provider==='manual'&&['NOT_ISSUED','ERROR'].includes(c.status)" in js.text
-    finally:
-        cleanup()
-
-
-def test_ssl_ui_supports_manual_to_cloudflare_conversion_and_auto_renew_gate():
-    js = open('app/static/app.js').read()
-    assert 'Convert to Cloudflare' in js
-    assert 'Cloudflare API token for' in js
-    assert "data-ssl-action=\"convert-cloudflare\"" in js
-    assert 'Enable auto renew' in js
-    assert 'Disable auto renew' in js
-    assert "last_renewal_status==='TEST_SUCCESS'" in js
-    assert "method:'PUT'" in js
-
-
-def test_ssl_ui_keeps_legacy_acme_rows_manageable_but_does_not_offer_new_conversion():
-    html=open('app/templates/system.html').read()
-    js=open('app/static/app.js').read()
-    assert 'value="acme_delegation"' not in html
-    assert 'data-acme-delegation-panel' in html
-    assert 'Convert to ACME Delegation' not in js
-    assert 'Show delegation' in js
-    assert 'Verify delegation' in js
-    assert '/delegation/verify' in js
-    assert "c.provider==='acme_delegation'" in js
-    assert "c.delegation_verified" in js
-
-
-def test_system_ui_hides_acme_provider_status_cards_but_keeps_ssl_workflow():
-    html=open('app/templates/system.html').read()
-    assert 'Hosted DNS-01 provider' not in html
-    assert 'Self-hosted authoritative delegation' not in html
-    assert 'data-hosted-acme-status' not in html
-    assert 'data-acme-dns-status' not in html
-    assert 'data-hosted-acme-panel' not in html
-    assert 'value="acme_dns_hosted"' in html
-    assert 'data-action-modal' in open('app/templates/base.html').read()
-
-
-def test_system_ui_exposes_hosted_acme_workflow_for_super_admin():
-    client=make_web_env('super_admin')
-    try:
-        html=client.get('/app/system').text
-        js=(__import__('pathlib').Path('app/static/app.js')).read_text()
-        assert 'Hosted ACME-DNS' in html
-        assert 'data-hosted-acme-panel' not in html
-        assert 'showHostedCnameModal' in js
-        assert 'convert-hosted' in js
-        assert '/hosted-acme/register' in js
-        assert '/hosted-acme/verify' in js
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_ssl_action_row_uses_reusable_modal_feedback_ui():
-    client = make_web_env('super_admin')
-    try:
-        base = client.get('/app/system')
-        assert base.status_code == 200
-        html = base.text
-        assert 'data-action-modal' in html
-        assert 'data-action-modal-title' in html
-        assert 'data-action-modal-body' in html
-        assert 'data-action-modal-cancel' in html
-        assert 'data-action-modal-confirm' in html
-
-        js = client.get('/static/app.js')
-        assert js.status_code == 200
-        text = js.text
-        assert 'showActionModal' in text
-        assert 'showActionResult' in text
-        assert 'setActionModalBusy' in text
-        assert 'showHostedCnameModal' in text
-        assert 'Copy Name' in text
-        assert 'Copy Target' in text
-        assert "data-ssl-action=\"show-hosted\"" in text
+        for asset in ("/static/css/base.css", "/static/js/core.js", "/static/js/pages/mappings.js"):
+            body = client.get(asset).text
+            assert "//cdn." not in body.lower(), asset
+            assert "https://cdn" not in body.lower(), asset
+            assert 'src="http' not in body, asset
+            assert 'href="http' not in body, asset
+            assert "from \"http" not in body and "from 'http" not in body, asset
     finally:
         cleanup()
 
 
-def test_hosted_cname_is_modal_only_not_inline_system_panel():
-    client = make_web_env('super_admin')
+def test_removed_legacy_assets_are_not_referenced_anywhere():
+    templates = list((ROOT / "app" / "templates").glob("*.html"))
+    scripts = list((ROOT / "app" / "static" / "js").rglob("*.js"))
+    for path in templates + scripts:
+        text = path.read_text(encoding="utf-8")
+        assert "/static/app.js" not in text, path
+        assert "/static/app.css" not in text, path
+
+
+def test_mobile_navigation_lists_only_permitted_pages():
+    viewer = make_web_env("viewer")
     try:
-        system = client.get('/app/system')
-        assert system.status_code == 200
-        html = system.text
-        assert 'data-hosted-acme-panel' not in html
-        assert 'data-hosted-acme-cname-name' not in html
-        assert 'data-hosted-acme-cname-target' not in html
+        html = viewer.get("/app/dashboard").text
+        tabbar = html.split('class="tabbar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/app/dashboard"' in tabbar
+        assert 'href="/app/mappings"' in tabbar
+        assert 'href="/app/system"' in tabbar
+        assert 'href="/app/audit"' not in tabbar
+        assert "data-mobile-more" in tabbar
     finally:
         cleanup()
-
-
-def test_ssl_action_modal_has_non_submitting_controls_and_loading_state():
-    client = make_web_env('super_admin')
-    try:
-        system = client.get('/app/system')
-        html = system.text
-        assert 'type="button" data-action-modal-cancel' in html
-        assert 'type="button" data-action-modal-confirm' in html
-        assert 'data-action-modal-spinner' in html
-
-        js = client.get('/static/app.js')
-        text = js.text
-        assert "setModalPresentation('loading'" in text
-        assert "showResult('success'" in text
-        assert "showResult('error'" in text
-    finally:
-        cleanup()
-
-
-def test_action_modal_hidden_regions_are_forced_off_by_css():
-    css = Path("app/static/app.css").read_text()
-    assert ".action-modal [hidden]{display:none!important}" in css
-
-
-def test_global_action_modal_core_contract_for_050():
-    base = Path('app/templates/base.html').read_text()
-    js = Path('app/static/app.js').read_text()
-    css = Path('app/static/app.css').read_text()
-    assert 'aria-labelledby="action-modal-title"' in base
-    assert 'aria-describedby="action-modal-description"' in base
-    assert 'id="action-modal-title"' in base
-    assert 'id="action-modal-description"' in base
-    for symbol in (
-        'resetActionModal', 'showLoading', 'showSuccess', 'showError',
-        'showWarning', 'showInfo', 'confirmAction', 'promptAction',
-        'closeActionModal', 'trapActionModalFocus', 'restoreActionModalFocus'
-    ):
-        assert symbol in js
-    assert 'lastActionTrigger' in js
-    assert "e.key==='Tab'" in js or 'e.key === \'Tab\'' in js
-    assert 'action-modal-open' in css
-    assert '.action-modal [hidden]{display:none!important}' in css
-
-
-def test_global_action_runner_contract_for_050():
-    js = Path('app/static/app.js').read_text()
-    for symbol in ('normalizeActionResponse', 'runAction', 'withBusyControls', 'activeActionKeys'):
-        assert symbol in js
-    assert 'textContent' in js
-    assert 'finally' in js
-    assert 'response.status === 204' in js or 'response.status===204' in js
-
-
-def test_global_modal_page_adapters_exist_for_all_action_pages():
-    js = Path('app/static/app.js').read_text()
-    for adapter in ('mappingActions', 'userActions', 'roleActions', 'systemActions', 'backupActions', 'auditActions', 'dashboardActions', 'sslActions'):
-        assert adapter in js
-
-
-def test_mapping_actions_use_global_modal_runner():
-    js=Path('app/static/app.js').read_text()
-    for token in ('mappingActions.save', 'mappingActions.delete', 'mappingActions.apply'):
-        assert token in js
-    assert "title:'Delete mapping?'" in js
-    assert "title:'Applying configuration'" in js
-
-
-def test_user_actions_use_global_modal_runner_and_password_flow():
-    js=Path('app/static/app.js').read_text()
-    for token in ('userActions.save', 'userActions.disable', 'userActions.resetPassword'):
-        assert token in js
-    assert "title:'Disable user?'" in js
-    assert 'Password reset and sessions revoked.' in js
-
-
-def test_role_actions_use_global_modal_runner():
-    js=Path('app/static/app.js').read_text()
-    assert 'roleActions.savePermissions' in js
-    assert 'Role permissions updated.' in js
-
-
-def test_system_and_backup_actions_use_global_modal_runner():
-    js=Path('app/static/app.js').read_text()
-    for token in ('systemActions.validate', 'systemActions.apply', 'systemActions.rollback', 'backupActions.create', 'backupActions.restore', 'backupActions.delete'):
-        assert token in js
-    assert "title:'Rollback revision?'" in js
-    assert 'This cannot be undone' in js
-
-
-def test_audit_dashboard_and_ssl_actions_use_global_modal_api():
-    js=Path('app/static/app.js').read_text()
-    assert 'auditActions.filter' in js
-    assert 'dashboardActions.refresh' in js
-    assert 'sslActions.run' in js
-    assert 'sslActions.manualCheck' in js
-
-
-def test_no_native_dialogs_or_normal_action_flash_remain_in_050():
-    js=Path('app/static/app.js').read_text()
-    for token in ('window.confirm', 'window.prompt', 'window.alert'):
-        assert token not in js
-    assert js.count('flash(') == 1  # app-wide initialization failure only
-    assert 'data-flash' in Path('app/templates/base.html').read_text()
-
-
-def test_backup_upload_and_role_create_controls_are_exposed_to_authorized_users():
-    client = make_web_env('super_admin')
-    try:
-        system = client.get('/app/system')
-        roles = client.get('/app/roles')
-        js = client.get('/static/app.js').text
-        assert 'data-action="backup-upload"' in system.text
-        assert 'data-backup-upload-dialog' in system.text
-        assert 'accept=".tar.gz,.tgz,application/gzip"' in system.text
-        assert '/api/v1/backups/upload' in js
-        assert 'X-Backup-Filename' in js
-
-        assert 'data-action="role-create"' in roles.text
-        assert 'data-role-create-dialog' in roles.text
-        assert 'name="description"' in roles.text
-        assert "api('/api/v1/roles',{method:'POST'" in js
-    finally:
-        cleanup()
-
-
-def test_role_delete_control_and_global_confirmation_are_wired_for_custom_roles():
-    client = make_web_env('super_admin')
-    try:
-        roles = client.get('/app/roles')
-        js = client.get('/static/app.js').text
-        assert 'data-delete-role' in js
-        assert 'roleActions.delete' in js
-        assert "method:'DELETE'" in js
-        assert "title:'Delete role?'" in js
-        assert 'assigned users' in js.lower()
-        assert 'ROLE_DELETED' not in roles.text  # action is handled by API/audit, not hard-coded into page markup
-    finally:
-        cleanup()
-
-
-def test_super_admin_system_has_structured_firewall_ui():
-    client=make_web_env('super_admin')
-    try:
-        response=client.get('/app/system'); assert response.status_code==200
-        assert 'Firewall (UFW)' in response.text
-        assert 'data-action="firewall-add"' in response.text
-        assert 'data-action="firewall-apply"' in response.text
-        assert 'data-action="firewall-rollback"' in response.text
-        assert 'name="source_cidrs"' in response.text
-        assert 'raw UFW commands' in response.text
-        assert 'name="command"' not in response.text
-    finally: cleanup()
-
-def test_viewer_system_sees_firewall_restricted_without_mutation_controls():
-    client=make_web_env('viewer')
-    try:
-        response=client.get('/app/system'); assert 'Firewall (UFW)' in response.text
-        assert 'firewall.manage' in response.text
-        assert 'data-action="firewall-add"' not in response.text
-        assert 'data-action="firewall-apply"' not in response.text
-    finally: cleanup()
-
-def test_action_modal_native_close_event_does_not_resolve_confirmation_promise():
-    """A stale dialog close event must not resolve the next confirmation."""
-    js = Path("app/static/app.js").read_text()
-
-    marker = "actionModal()?.addEventListener('close',()=>{"
-    assert marker in js
-
-    close_handler = js.split(marker, 1)[1].split("});", 1)[0]
-
-    assert "actionModalResolver" not in close_handler
-    assert "resolve(" not in close_handler
-
-
-
-def test_060_design_system_has_overflow_safe_foundation():
-    css = Path('app/static/app.css').read_text()
-    compact = css.replace(' ', '')
-    assert 'box-sizing:border-box' in compact
-    assert 'min-width:0' in compact
-    assert 'overflow-wrap:anywhere' in compact
-    assert '--sidebar-width:' in css
-    assert '--control-height:' in css
-    assert '.machine-value' in css
-    assert '.content-stack' in css
-    assert 'body{overflow-x:hidden' not in compact
-
-
-def test_060_shell_and_login_have_modern_responsive_wrappers():
-    base = Path('app/templates/base.html').read_text()
-    login = Path('app/templates/login.html').read_text()
-    css = Path('app/static/app.css').read_text()
-    assert 'class="page-content"' in base
-    assert 'aria-label="Primary navigation"' in base
-    assert 'data-action="logout"' in base
-    assert 'data-global-status' in base
-    assert 'class="login-shell"' in login
-    assert 'grid-template-columns:repeat(3,1fr)' not in css.replace(' ', '')
-
-
-def test_060_tables_forms_and_long_values_are_responsive():
-    css = Path('app/static/app.css').read_text()
-    for token in ('.table-wrap', '.row-actions', '.responsive-form', '.machine-value', '.toolbar-group'):
-        assert token in css
-    compact = css.replace(' ', '')
-    assert '.table-wrap{overflow-x:auto' in compact
-    assert 'max-width:100%' in compact
-    for name in ('mappings.html', 'users.html', 'audit.html', 'system.html'):
-        html = Path('app/templates', name).read_text()
-        assert 'class="table-wrap"' in html
-
-
-def test_060_modals_are_viewport_constrained_and_scroll_internally():
-    css = Path('app/static/app.css').read_text().replace(' ', '')
-    base = Path('app/templates/base.html').read_text()
-    system = Path('app/templates/system.html').read_text()
-    js = Path('app/static/app.js').read_text()
-    assert 'max-height:' in css
-    assert 'overflow-y:auto' in css
-    assert 'data-action-modal-confirm' in base
-    assert 'data-firewall-dialog' in system
-    assert 'data-firewall-form' in system
-    assert "actionModal()?.addEventListener('close'" in js
-
-
-def test_060_system_dense_forms_use_named_responsive_layouts():
-    html = Path('app/templates/system.html').read_text()
-    assert 'class="rollback-form responsive-form"' in html
-    assert 'class="firewall-policy responsive-form"' in html
-    assert 'class="ssl-form responsive-form"' in html
-    for hook in (
-        'data-system-status', 'data-action="config-validate"', 'data-action="config-apply"',
-        'data-firewall-section', 'data-firewall-rules', 'data-action="firewall-preview"',
-        'data-action="firewall-validate"', 'data-action="firewall-apply"',
-        'data-action="firewall-rollback"', 'data-firewall-dialog', 'data-ssl-section'
-    ):
-        assert hook in html
-
-
-def test_060_all_primary_pages_use_common_content_contract():
-    for name in ('dashboard.html', 'mappings.html', 'users.html', 'roles.html', 'audit.html', 'system.html'):
-        html = Path('app/templates', name).read_text()
-        assert 'class="content-stack"' in html
-    css = Path('app/static/app.css').read_text()
-    for token in ('@media(max-width:1024px)', '@media(max-width:720px)', '@media(max-width:560px)'):
-        assert token in css.replace(' ', '')
-
-
-def test_060_system_checkbox_controls_use_inline_check_alignment():
-    html = Path('app/templates/system.html').read_text()
-    assert '<label class="check"><input type="checkbox" data-firewall-enabled> Enable UFW</label>' in html
-    assert '<label class="check"><input name="auto_renew" type="checkbox"> Auto renew after successful test</label>' in html
-    assert '<label class="check"><input name="redirect_http" type="checkbox" checked> HTTP → HTTPS</label>' in html
-
-
-def test_061_audit_table_keeps_row_values_on_single_lines():
-    html = Path('app/templates/audit.html').read_text()
-    css = Path('app/static/app.css').read_text().replace(' ', '')
-    assert 'class="audit-table"' in html
-    assert '.audit-table{min-width:' in css
-    assert '.audit-tableth,.audit-tabletd{white-space:nowrap' in css
-    assert '.audit-table.badge{white-space:nowrap' in css
-
-
-def test_062_audit_detail_wraps_but_primary_columns_stay_single_line():
-    css = Path('app/static/app.css').read_text().replace(' ', '')
-
-    assert '.audit-tableth,.audit-tabletd{white-space:nowrap' in css
-    assert '.audit-tabletd:nth-child(3).muted.small{white-space:normal' in css
-    assert 'overflow-wrap:anywhere' in css
-
-
-def test_063_firewall_helper_copy_is_removed_and_ssl_status_badges_have_gap():
-    html = Path('app/templates/system.html').read_text()
-    css = Path('app/static/app.css').read_text().replace(' ', '')
-
-    assert 'Restrictive apply is protected by SSH-path validation' not in html
-    assert 'After Apply, click <strong>Keep firewall changes</strong> to confirm.' not in html
-    assert '[data-ssl-table]td:nth-child(3).badge+.badge{margin-left:' in css
-
-
-def test_064_ssl_table_keeps_primary_cells_single_line_and_stacks_status_badges():
-    html = Path('app/templates/system.html').read_text()
-    css = Path('app/static/app.css').read_text().replace(' ', '')
-
-    assert '<table class="ssl-table">' in html
-    assert '.ssl-table{min-width:' in css
-    assert '.ssl-tableth,.ssl-tabletd{white-space:nowrap' in css
-    assert '.ssl-tabletd:nth-child(3){white-space:normal' in css
-    assert '.ssl-tabletd:nth-child(3).badge{display:flex' in css
-    assert '.ssl-tabletd:nth-child(3).badge+.badge{margin-left:0;margin-top:' in css
-    assert '.ssl-table.row-actions{flex-wrap:nowrap' in css
-    assert '.table-wrap{overflow-x:auto' in css
-
-
-def test_065_mobile_layout_polishes_small_viewports_without_page_overflow_hacks():
-    css = Path('app/static/app.css').read_text().replace(' ', '')
-
-    assert '.table-wrap{overflow-x:auto' in css
-    assert 'overscroll-behavior-inline:contain' in css
-    assert '@media(max-width:720px)' in css
-    assert '.subhead{flex-wrap:wrap;align-items:flex-start}' in css
-    assert '@media(max-width:560px)' in css
-    assert '.card-head>.btn{width:100%}' in css
-    assert '.status-row{align-items:flex-start;flex-direction:column}' in css
-    assert '.nav-list{scroll-snap-type:xproximity}' in css
-    assert '.nav-item{scroll-snap-align:start}' in css
-    assert 'body{overflow-x:hidden' not in css
-
-def test_firewall_multi_source_editor_has_repeatable_accessible_inputs_and_actions():
-    from pathlib import Path
-    html=Path('app/templates/system.html').read_text()
-    js=Path('app/static/app.js').read_text()
-    assert 'data-firewall-source-list' in html
-    assert 'data-firewall-source-add' in html
-    assert 'data-firewall-source-remove' in js
-    assert "source_cidrs:" in js
-    assert 'source_cidrs||' in js
-    assert 'source-limit' in js

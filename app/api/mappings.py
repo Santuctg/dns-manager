@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_permission
 from app.models.auth import User
+from app.models.ssl import SslCertificate
 from app.schemas.mapping import MappingCreate, MappingRead, MappingUpdate
 from app.security import CSRF_COOKIE, SESSION_COOKIE, token_hash, validate_csrf_tokens
 from app.services.auth_service import resolve_session
@@ -38,6 +40,18 @@ def _snapshot(row) -> dict[str, object]:
     }
 
 
+def _ssl_statuses(db: Session) -> dict[str, str | None]:
+    rows = db.execute(select(SslCertificate.domain, SslCertificate.status)).all()
+    return {str(domain).strip().lower().rstrip("."): state for domain, state in rows}
+
+
+def _read(db: Session, mapping, statuses: dict[str, str | None] | None = None) -> MappingRead:
+    lookup = statuses if statuses is not None else _ssl_statuses(db)
+    return MappingRead.model_validate(mapping).model_copy(
+        update={"ssl_status": lookup.get(str(mapping.domain).strip().lower().rstrip("."))}
+    )
+
+
 def _require_csrf(request: Request, db: Session) -> None:
     cookie = request.cookies.get(CSRF_COOKIE)
     submitted = request.headers.get("X-CSRF-Token")
@@ -60,7 +74,8 @@ def index(
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("mapping.view")),
 ):
-    return list_mappings(db)
+    statuses = _ssl_statuses(db)
+    return [_read(db, row, statuses) for row in list_mappings(db)]
 
 
 @router.get("/{mapping_id}", response_model=MappingRead)
@@ -70,7 +85,7 @@ def show(
     _user: User = Depends(require_permission("mapping.view")),
 ):
     try:
-        return get_mapping(db, mapping_id)
+        return _read(db, get_mapping(db, mapping_id))
     except MappingNotFoundError as exc:
         raise _translate(exc)
 
@@ -86,7 +101,7 @@ def create(
     try:
         row = create_mapping(db, payload, user.id)
         record_audit_event(db, user=user, action="MAPPING_CREATED", object_type="mapping", object_id=row.id, source_ip=_client_ip(request), user_agent=request.headers.get("user-agent"), new_value=_snapshot(row))
-        return row
+        return _read(db, row)
     except MappingConflictError as exc:
         raise _translate(exc)
 
@@ -104,7 +119,7 @@ def update(
         before = _snapshot(get_mapping(db, mapping_id))
         row = update_mapping(db, mapping_id, payload, user.id)
         record_audit_event(db, user=user, action="MAPPING_UPDATED", object_type="mapping", object_id=row.id, source_ip=_client_ip(request), user_agent=request.headers.get("user-agent"), old_value=before, new_value=_snapshot(row))
-        return row
+        return _read(db, row)
     except (MappingConflictError, MappingNotFoundError) as exc:
         raise _translate(exc)
 

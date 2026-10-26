@@ -1,7 +1,103 @@
 {% extends "base.html" %}
+{% from "_macros.html" import icon %}
 {% block content %}
-<section class="content-stack"><section class="card"><div class="card-head"><div><p class="eyebrow">Access control</p><h2>Roles & permissions</h2></div>{% if can_role_manage %}<button class="btn btn-primary" data-action="role-create">Create role</button>{% endif %}</div><div class="role-grid" data-roles-grid><p class="muted">Loading roles…</p></div></section></section>
+<section class="page-hero">
+  <div class="page-intro">
+    <h2>{{ t('roles.title') }}</h2>
+    <p>{{ t('roles.subtitle') }}</p>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn btn-secondary" type="button" data-roles-refresh>
+      {{ icon('refresh', 'icon icon-sm') }}{{ t('common.refresh') }}
+    </button>
+    {% if can_role_manage %}
+    <button class="btn btn-primary" type="button" data-role-add>
+      {{ icon('plus', 'icon icon-sm') }}{{ t('roles.add') }}
+    </button>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('nav.roles') }}</p>
+      <h2>{{ t('roles.permissions') }}</h2>
+      <p class="muted small" data-roles-summary>{{ t('common.loading') }}</p>
+    </div>
+  </div>
+  <div class="role-grid" data-roles-grid>
+    <p class="muted">{{ t('common.loading') }}</p>
+  </div>
+</section>
+
+<dialog class="side-panel" data-role-create-panel aria-labelledby="role-create-title">
+  <form data-role-create-form novalidate>
+    <div class="side-panel-head">
+      <div>
+        <p class="eyebrow">{{ t('nav.roles') }}</p>
+        <h2 id="role-create-title">{{ t('roles.add') }}</h2>
+      </div>
+      <button class="icon-btn" type="button" data-panel-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+    </div>
+    <div class="side-panel-body">
+      <label class="field" for="role-name">
+        {{ t('roles.name') }}
+        <input id="role-name" name="name" pattern="[a-z][a-z0-9_\-]{1,63}" placeholder="noc_operator" required>
+      </label>
+      <label class="field" for="role-description">
+        {{ t('roles.description') }}
+        <input id="role-description" name="description" maxlength="255" autocomplete="off">
+      </label>
+      <fieldset class="stack">
+        <legend class="field">{{ t('roles.permissions') }}</legend>
+        <div class="permission-grid">
+          {% for permission in all_permissions %}
+          <label class="check" for="create-perm-{{ loop.index }}">
+            <input id="create-perm-{{ loop.index }}" type="checkbox" name="permissions" value="{{ permission }}">
+            <span class="check-text"><strong>{{ permission }}</strong></span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+    <div class="side-panel-foot">
+      <button class="btn btn-secondary" type="button" data-panel-close>{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" type="submit">{{ t('roles.add') }}</button>
+    </div>
+  </form>
+</dialog>
+
 {% if can_role_manage %}
-<dialog class="modal modal-wide" data-role-create-dialog><form method="dialog" data-role-create-form><div class="modal-head"><h2>Create role</h2><button class="icon-btn" type="button" data-dialog-close aria-label="Close">×</button></div><div class="form-grid"><label>Role name<input name="name" pattern="[a-z][a-z0-9_-]{1,63}" placeholder="noc_operator" required></label><label>Description<input name="description" maxlength="255" placeholder="Optional description"></label></div><div class="permission-grid">{% for permission in all_permissions %}<label class="check"><input type="checkbox" name="permissions" value="{{ permission }}"> {{ permission }}</label>{% endfor %}</div><div class="modal-actions"><button class="btn btn-ghost" type="button" data-dialog-close>Cancel</button><button class="btn btn-primary" type="submit" data-action="role-create-submit">Create role</button></div></form></dialog>
-<dialog class="modal modal-wide" data-role-dialog><form method="dialog" data-role-form><div class="modal-head"><h2 data-role-title>Edit permissions</h2><button class="icon-btn" type="button" data-dialog-close aria-label="Close">×</button></div><input type="hidden" name="id"><div class="permission-grid">{% for permission in all_permissions %}<label class="check"><input type="checkbox" name="permissions" value="{{ permission }}"> {{ permission }}</label>{% endfor %}</div><div class="modal-actions"><button class="btn btn-ghost" type="button" data-dialog-close>Cancel</button><button class="btn btn-primary" type="submit" value="default" data-action="role-permissions-save">Save permissions</button></div></form></dialog>{% endif %}
+<dialog class="side-panel" data-role-panel aria-labelledby="role-panel-title">
+  <form data-role-form novalidate>
+    <div class="side-panel-head">
+      <div>
+        <p class="eyebrow">{{ t('nav.roles') }}</p>
+        <h2 id="role-panel-title" data-role-panel-title>{{ t('roles.edit') }}</h2>
+      </div>
+      <button class="icon-btn" type="button" data-panel-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+    </div>
+    <div class="side-panel-body">
+      <input type="hidden" name="id">
+      <p class="muted small" data-role-panel-description></p>
+      <fieldset class="stack">
+        <legend class="field">{{ t('roles.permissions') }}</legend>
+        <div class="permission-grid">
+          {% for permission in all_permissions %}
+          <label class="check" for="edit-perm-{{ loop.index }}">
+            <input id="edit-perm-{{ loop.index }}" type="checkbox" name="permissions" value="{{ permission }}">
+            <span class="check-text"><strong>{{ permission }}</strong></span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+    <div class="side-panel-foot">
+      <button class="btn btn-secondary" type="button" data-panel-close>{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" type="submit">{{ t('common.save') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}

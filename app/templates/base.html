@@ -1,49 +1,219 @@
+{% from "_macros.html" import icon %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang }}" data-theme="{{ theme }}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page_title }} · DNS Manager</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="{{ 'light' if theme == 'light' else 'dark' }}">
+  <meta name="theme-color" content="{{ '#eef1f5' if theme == 'light' else '#0b0e13' }}">
+  <title>{{ page_title }} · {{ t('app.name') }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
 </head>
-<body class="app-shell" data-page="{{ page }}" data-role="{{ role_name }}" data-can-rollback="{{ 'true' if can_config_rollback else 'false' }}">
-  <aside class="sidebar" aria-label="Primary navigation">
-    <a class="brand" href="/app/dashboard"><span class="brand-mark">DN</span><span>DNS Manager</span></a>
-    <nav class="nav-list">
-      <a class="nav-item {{ 'active' if page == 'dashboard' else '' }}" href="/app/dashboard">Dashboard</a>
-      <a class="nav-item {{ 'active' if page == 'mappings' else '' }}" href="/app/mappings">Mappings</a>
-      {% if can_user_view %}<a class="nav-item {{ 'active' if page == 'users' else '' }}" href="/app/users">Users</a>{% endif %}
-      {% if can_role_view %}<a class="nav-item {{ 'active' if page == 'roles' else '' }}" href="/app/roles">Roles</a>{% endif %}
-      <a class="nav-item {{ 'active' if page == 'audit' else '' }}" href="/app/audit">Audit</a>
-      <a class="nav-item {{ 'active' if page == 'system' else '' }}" href="/app/system">System</a>
-    </nav>
-    <div class="sidebar-footer">
-      <div class="identity"><strong>{{ user.username }}</strong><span>{{ role_name.replace('_', ' ')|title }}</span></div>
-      <button class="btn btn-ghost btn-block" type="button" data-action="logout">Sign out</button>
+<body
+  class="app-shell"
+  data-page="{{ page }}"
+  data-role="{{ role_name }}"
+  data-can-apply="{{ 'true' if can_config_apply else 'false' }}"
+  data-can-rollback="{{ 'true' if can_config_rollback else 'false' }}"
+  data-can-mapping-create="{{ 'true' if can_mapping_create else 'false' }}"
+  data-can-mapping-update="{{ 'true' if can_mapping_update else 'false' }}"
+  data-can-mapping-delete="{{ 'true' if can_mapping_delete else 'false' }}"
+  data-can-backup-create="{{ 'true' if can_backup_create else 'false' }}"
+  data-can-backup-restore="{{ 'true' if can_backup_restore else 'false' }}"
+  data-can-firewall-manage="{{ 'true' if can_firewall_manage else 'false' }}"
+  data-can-ssl-manage="{{ 'true' if can_ssl_manage else 'false' }}"
+  data-can-role-view="{{ 'true' if can_role_view else 'false' }}"
+  data-can-role-manage="{{ 'true' if can_role_manage else 'false' }}"
+  data-can-user-create="{{ 'true' if can_user_create else 'false' }}"
+  data-can-user-update="{{ 'true' if can_user_update else 'false' }}"
+  data-can-user-delete="{{ 'true' if can_user_delete else 'false' }}"
+  data-lang-cookie="{{ lang_cookie }}"
+  data-theme-cookie="{{ theme_cookie }}"
+>
+  <a class="skip-link" href="#main-content">{{ t('common.skip_to_content') }}</a>
+  <div class="shell">
+    <aside class="sidebar" aria-label="{{ t('nav.primary') }}">
+      <a class="brand" href="/app/dashboard">
+        <span class="brand-mark" aria-hidden="true">DN</span>
+        <span class="brand-name">{{ t('app.name') }}</span>
+      </a>
+      <button class="rail-toggle" type="button" data-sidebar-toggle aria-label="{{ t('nav.collapse') }}">
+        {{ icon('chevron', 'icon icon-sm') }}
+      </button>
+      <nav class="nav-groups">
+        {% for group in nav_groups %}
+        <div class="nav-group">
+          <span class="nav-group-label">{{ group.label }}</span>
+          {% for item in group['items'] %}
+          <a class="nav-item {{ 'active' if page == item.page else '' }}" href="{{ item.href }}" title="{{ item.label }}" {% if page == item.page %}aria-current="page"{% endif %}>
+            {{ icon(item.icon) }}
+            <span class="nav-label">{{ item.label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-footer">
+        <div class="identity">
+          <strong>{{ user.username }}</strong>
+          <span>{{ role_label }}</span>
+        </div>
+        <button class="btn btn-ghost btn-block" type="button" data-action="logout">
+          {{ icon('external', 'icon icon-sm') }}<span>{{ t('common.sign_out') }}</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="main-col">
+      <header class="topbar">
+        <button class="icon-btn mobile-only" type="button" data-mobile-menu aria-label="{{ t('nav.primary') }}">
+          {{ icon('menu') }}
+        </button>
+        <div class="topbar-heading">
+          <p class="eyebrow">{{ t('app.name') }}</p>
+          <h1>{{ page_title }}</h1>
+        </div>
+        <div class="topbar-actions">
+          <a class="status-pill" href="/app/system" data-global-status aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span data-global-status-text>{{ t('status.checking') }}</span>
+          </a>
+          <div class="segmented" role="group" aria-label="{{ t('common.language') }}">
+            <button type="button" data-lang-switch="bn" aria-pressed="{{ 'true' if lang == 'bn' else 'false' }}" aria-label="{{ t('common.bengali') }}">বাংলা</button>
+            <button type="button" data-lang-switch="en" aria-pressed="{{ 'true' if lang == 'en' else 'false' }}" aria-label="{{ t('common.english') }}">EN</button>
+          </div>
+          <div class="segmented" role="group" aria-label="{{ t('common.theme') }}">
+            <button type="button" data-theme-switch="dark" aria-pressed="{{ 'true' if theme == 'dark' else 'false' }}" aria-label="{{ t('common.dark') }}" title="{{ t('common.dark') }}">{{ icon('moon', 'icon icon-sm') }}</button>
+            <button type="button" data-theme-switch="light" aria-pressed="{{ 'true' if theme == 'light' else 'false' }}" aria-label="{{ t('common.light') }}" title="{{ t('common.light') }}">{{ icon('sun', 'icon icon-sm') }}</button>
+          </div>
+          <details class="user-menu">
+            <summary>
+              <span>{{ user.username }}</span>
+              {{ icon('chevron', 'icon icon-sm') }}
+            </summary>
+            <div class="user-menu-panel">
+              <div class="identity">
+                <strong>{{ user.username }}</strong>
+                <span>{{ role_label }}</span>
+              </div>
+              <button class="btn btn-ghost" type="button" data-action="logout">
+                {{ icon('external', 'icon icon-sm') }}{{ t('common.sign_out') }}
+              </button>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      {% if request.query_params.get('error') == 'permission' %}
+      <div class="pending-banner read-only" role="status">
+        <span class="status-dot warning" aria-hidden="true"></span>
+        <p>{{ t('common.permission_denied') }}</p>
+      </div>
+      {% endif %}
+
+      <div class="pending-banner" data-pending-banner hidden>
+        <span class="status-dot warning" aria-hidden="true"></span>
+        <div class="pending-copy">
+          <strong data-pending-text></strong>
+          <span class="pending-domains" data-pending-domains></span>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-apply-pending hidden>{{ t('pending.apply') }}</button>
+      </div>
+
+      <main class="page-content" id="main-content">
+        {% block content %}{% endblock %}
+      </main>
     </div>
-  </aside>
-  <main class="main-panel">
-    <header class="topbar">
-      <div><p class="eyebrow">DNS Manager</p><h1>{{ page_title }}</h1></div>
-      <div class="topbar-actions"><span class="status-dot" data-global-status></span><span data-global-status-text>Checking services…</span></div>
-    </header>
-    <div class="flash" data-flash hidden></div>
-    <div class="page-content">{% block content %}{% endblock %}</div>
-  </main>
-  <dialog class="modal action-modal" data-action-modal data-state="info" aria-labelledby="action-modal-title" aria-describedby="action-modal-description">
-    <div class="action-modal-head">
-      <div class="action-modal-heading"><span class="action-modal-icon" data-action-modal-icon>i</span><div><p class="eyebrow" data-action-modal-kicker>DNS Manager action</p><h2 id="action-modal-title" data-action-modal-title>Action</h2></div></div>
-      <button class="icon-btn" type="button" data-action-modal-close aria-label="Close">×</button>
-    </div>
-    <div class="action-modal-body" id="action-modal-description" data-action-modal-body></div>
-    <label class="action-modal-input" data-action-modal-input-wrap hidden><span data-action-modal-input-label>Value</span><input data-action-modal-input autocomplete="off"></label>
-    <div class="action-modal-progress" data-action-modal-spinner role="status" aria-live="polite" hidden><span class="action-spinner" aria-hidden="true"></span><span>Please wait…</span></div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" type="button" data-action-modal-cancel hidden>Cancel</button>
-      <button class="btn btn-primary" type="button" data-action-modal-confirm>Close</button>
+  </div>
+
+  <nav class="tabbar" aria-label="{{ t('nav.primary') }}">
+    {% for tab in mobile_tabs %}
+    <a href="{{ tab.href }}" class="{{ 'active' if page == tab.page else '' }}" {% if page == tab.page %}aria-current="page"{% endif %}>
+      {{ icon(tab.icon) }}
+      <span>{{ tab.label }}</span>
+    </a>
+    {% endfor %}
+    <button type="button" data-mobile-more>
+      {{ icon('more') }}
+      <span>{{ t('common.more') }}</span>
+    </button>
+  </nav>
+
+  <dialog class="mobile-sheet" data-mobile-sheet aria-label="{{ t('nav.more_pages') }}">
+    <div class="mobile-sheet-inner">
+      <div class="mobile-sheet-head">
+        <strong>{{ t('nav.more_pages') }}</strong>
+        <button class="icon-btn" type="button" data-mobile-sheet-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+      </div>
+      {% for item in more_pages %}
+      <a class="nav-item {{ 'active' if page == item.page else '' }}" href="{{ item.href }}">
+        {{ icon(item.icon) }}<span>{{ item.label }}</span>
+      </a>
+      {% endfor %}
+      <div class="mobile-sheet-section">
+        <div class="mobile-sheet-row">
+          <span class="muted small">{{ t('common.language') }}</span>
+          <div class="segmented">
+            <button type="button" data-lang-switch="bn" aria-pressed="{{ 'true' if lang == 'bn' else 'false' }}">বাংলা</button>
+            <button type="button" data-lang-switch="en" aria-pressed="{{ 'true' if lang == 'en' else 'false' }}">EN</button>
+          </div>
+        </div>
+        <div class="mobile-sheet-row">
+          <span class="muted small">{{ t('common.theme') }}</span>
+          <div class="segmented">
+            <button type="button" data-theme-switch="dark" aria-label="{{ t('common.dark') }}">{{ icon('moon', 'icon icon-sm') }}</button>
+            <button type="button" data-theme-switch="light" aria-label="{{ t('common.light') }}">{{ icon('sun', 'icon icon-sm') }}</button>
+          </div>
+        </div>
+        <div class="mobile-sheet-row">
+          <span class="identity"><strong>{{ user.username }}</strong><span>{{ role_label }}</span></span>
+          <button class="btn btn-secondary btn-sm" type="button" data-action="logout">{{ t('common.sign_out') }}</button>
+        </div>
+      </div>
     </div>
   </dialog>
-  <script>window.DNS_MANAGER_PAGE = {{ page|tojson }};</script>
-  <script src="/static/app.js" defer></script>
+
+  <dialog class="modal action-modal" data-action-modal data-state="info" aria-labelledby="action-modal-title" aria-describedby="action-modal-description">
+    <div class="action-modal-head">
+      <div class="action-modal-heading">
+        <span class="action-modal-icon" data-action-modal-icon aria-hidden="true">i</span>
+        <div>
+          <p class="eyebrow" data-action-modal-kicker>{{ t('app.name') }}</p>
+          <h2 id="action-modal-title" data-action-modal-title>{{ t('common.info') }}</h2>
+        </div>
+      </div>
+      <button class="icon-btn" type="button" data-action-modal-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+    </div>
+    <div class="action-modal-body" id="action-modal-description" data-action-modal-body></div>
+    <label class="action-modal-input" data-action-modal-input-wrap hidden>
+      <span data-action-modal-input-label>{{ t('common.value') }}</span>
+      <input data-action-modal-input autocomplete="off">
+    </label>
+    <div class="action-modal-progress" data-action-modal-spinner role="status" aria-live="polite" hidden>
+      <span class="action-spinner" aria-hidden="true"></span>
+      <span>{{ t('common.loading') }}</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" data-action-modal-cancel hidden>{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" type="button" data-action-modal-confirm>{{ t('common.close') }}</button>
+    </div>
+  </dialog>
+
+  <div class="toast-stack" id="toast-stack" role="status" aria-live="polite"></div>
+  <script type="application/json" id="i18n-data">{{ i18n|tojson }}</script>
+  <script type="module">
+    import { initShell, reportPageError } from "/static/js/core.js";
+    initShell();
+    import("/static/js/pages/{{ page }}.js")
+      .then((module) => module.init && module.init())
+      .catch((error) => {
+        console.error(error);
+        reportPageError(error);
+      });
+  </script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

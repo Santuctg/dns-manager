@@ -58,6 +58,10 @@ class FakePrivilegedHelper:
         self.live_nginx.write_text((self.generated / "nginx.conf").read_text())
         return {"ok": True, "applied": True}
 
+    def ssl_apply(self, domain: str, redirect_http: bool = True, *, upstream: dict | None = None):
+        self.calls.append(f"ssl_apply:{domain}")
+        return {"ok": True, "domain": domain, "redirect_http": redirect_http, "upstream": upstream}
+
     def rollback(self):
         self.calls.append("rollback")
         self.live_dnsmasq.write_text(self.known_good_dnsmasq)
@@ -145,7 +149,7 @@ def acceptance_env(tmp_path, monkeypatch):
     real_validate = apply_service.validate_pending_config
     real_rollback = apply_service.rollback_revision
 
-    def api_apply(db, *, internal_proxy_ip, created_by):
+    def api_apply(db, *, internal_proxy_ip, created_by, user=None, ssl_sync_out=None):
         return real_apply(
             db,
             internal_proxy_ip=internal_proxy_ip,
@@ -153,6 +157,8 @@ def acceptance_env(tmp_path, monkeypatch):
             helper=helper,
             generated_dir=generated,
             lock_path=tmp_path / "apply.lock",
+            user=user,
+            ssl_sync_out=ssl_sync_out,
         )
 
     def api_validate(db, *, internal_proxy_ip, created_by):

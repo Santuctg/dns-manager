@@ -1,4 +1,77 @@
 {% extends "base.html" %}
+{% from "_macros.html" import icon %}
 {% block content %}
-<section class="content-stack"><form class="toolbar card" data-audit-filters><div class="toolbar-group"><input name="username" placeholder="Username"><input name="action" placeholder="Action"><select name="status"><option value="">Any status</option><option value="success">Success</option><option value="failed">Failed</option></select></div><button class="btn btn-secondary" type="submit">Filter</button></form><section class="card"><div class="table-wrap"><table class="audit-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Object</th><th>Source</th><th>Status</th></tr></thead><tbody data-audit-table><tr><td colspan="6" class="muted">Loading audit events…</td></tr></tbody></table></div></section></section>
+<section class="page-hero">
+  <div class="page-intro">
+    <h2>{{ t('audit.title') }}</h2>
+    <p>{{ t('audit.subtitle') }}</p>
+  </div>
+  <button class="btn btn-secondary" type="button" data-audit-refresh>
+    {{ icon('refresh', 'icon icon-sm') }}{{ t('common.refresh') }}
+  </button>
+</section>
+
+<form class="audit-filters" data-audit-filters>
+  <label class="field" for="audit-username">
+    {{ t('audit.user') }}
+    <input id="audit-username" name="username" autocomplete="off" placeholder="{{ t('audit.user') }}">
+  </label>
+  <label class="field" for="audit-action">
+    {{ t('audit.action') }}
+    <input id="audit-action" name="action" autocomplete="off" placeholder="{{ t('audit.action') }}">
+  </label>
+  <label class="field" for="audit-object">
+    {{ t('audit.object') }}
+    <input id="audit-object" name="object_type" autocomplete="off" placeholder="{{ t('audit.object') }}">
+  </label>
+  <label class="field" for="audit-status">
+    {{ t('common.status') }}
+    <select id="audit-status" name="status">
+      <option value="">{{ t('audit.all') }}</option>
+      <option value="success">success</option>
+      <option value="failed">failed</option>
+      <option value="error">error</option>
+    </select>
+  </label>
+  <label class="field" for="audit-source">
+    {{ t('audit.ip') }}
+    <input id="audit-source" name="source_ip" autocomplete="off" placeholder="127.0.0.1">
+  </label>
+  <div class="toolbar-group">
+    <button class="btn btn-primary" type="submit">{{ t('audit.apply_filters') }}</button>
+    <button class="btn btn-secondary" type="button" data-audit-clear>{{ t('audit.clear') }}</button>
+  </div>
+</form>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('nav.audit') }}</p>
+      <h2>{{ t('audit.title') }}</h2>
+      <p class="muted small" data-audit-summary>{{ t('common.loading') }}</p>
+    </div>
+    <span class="badge" data-audit-count>0</span>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table audit-table">
+      <thead>
+        <tr>
+          <th scope="col">{{ t('audit.time') }}</th>
+          <th scope="col">{{ t('audit.user') }}</th>
+          <th scope="col">{{ t('audit.action') }}</th>
+          <th scope="col">{{ t('audit.object') }}</th>
+          <th scope="col">{{ t('audit.ip') }}</th>
+          <th scope="col">{{ t('common.status') }}</th>
+        </tr>
+      </thead>
+      <tbody data-audit-table>
+        <tr><td colspan="6" class="muted">{{ t('common.loading') }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="revision-pager">
+    <span class="muted small" data-audit-range></span>
+    <button class="btn btn-secondary btn-sm" type="button" data-audit-more hidden>{{ t('common.more') }}</button>
+  </div>
+</section>
 {% endblock %}

@@ -93,10 +93,26 @@ def reconcile_all_certificates(db, *, letsencrypt_root: Path | str | None = None
     rows = list(db.scalars(select(SslCertificate)).all())
     results = []
     for cert in rows:
-        if letsencrypt_root is None:
-            info = inspect_certificate_via_helper(cert.domain, helper=helper)
-        else:
-            info = inspect_certificate(cert.domain, letsencrypt_root=letsencrypt_root)
+        try:
+            if letsencrypt_root is None:
+                info = inspect_certificate_via_helper(cert.domain, helper=helper)
+            else:
+                info = inspect_certificate(cert.domain, letsencrypt_root=letsencrypt_root)
+        except Exception as exc:
+            # A single unreadable certificate must not blank the whole table.
+            info = {
+                'domain': cert.domain,
+                'status': 'ERROR',
+                'issuer': None,
+                'issued_at': None,
+                'expires_at': None,
+                'days_remaining': None,
+                'error': str(exc),
+            }
+            apply_certificate_info(cert, info)
+            cert.last_error = str(exc)
+            results.append(info)
+            continue
         apply_certificate_info(cert, info)
         results.append(info)
     db.commit()

@@ -1,22 +1,84 @@
+{% from "_macros.html" import icon %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang }}" data-theme="{{ theme }}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · DNS Manager</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="{{ 'light' if theme == 'light' else 'dark' }}">
+  <meta name="theme-color" content="{{ '#eef1f5' if theme == 'light' else '#0b0e13' }}">
+  <title>{{ t('login.title') }} · {{ t('app.name') }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
 </head>
-<body class="login-shell" data-page="login">
-  <main class="login-card">
-    <div class="login-brand"><span class="brand-mark">DN</span><div><strong>DNS Manager</strong><span>Network control console</span></div></div>
-    <div><p class="eyebrow">Secure access</p><h1>Sign in</h1><p class="muted">Use your DNS Manager account to continue.</p></div>
-    <form data-login-form data-next="{{ next_path }}">
-      <label>Username<input name="username" autocomplete="username" required autofocus></label>
-      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
-      <div class="flash" data-login-error hidden></div>
-      <button class="btn btn-primary btn-block" type="submit">Sign in</button>
-    </form>
+<body
+  class="login-shell"
+  data-page="login"
+  data-lang-cookie="{{ lang_cookie }}"
+  data-theme-cookie="{{ theme_cookie }}"
+>
+  <div class="login-controls">
+    <div class="segmented" role="group" aria-label="{{ t('common.language') }}">
+      <button type="button" data-lang-switch="bn" aria-pressed="{{ 'true' if lang == 'bn' else 'false' }}">বাংলা</button>
+      <button type="button" data-lang-switch="en" aria-pressed="{{ 'true' if lang == 'en' else 'false' }}">EN</button>
+    </div>
+    <div class="segmented" role="group" aria-label="{{ t('common.theme') }}">
+      <button type="button" data-theme-switch="dark" aria-label="{{ t('common.dark') }}">{{ icon('moon', 'icon icon-sm') }}</button>
+      <button type="button" data-theme-switch="light" aria-label="{{ t('common.light') }}">{{ icon('sun', 'icon icon-sm') }}</button>
+    </div>
+  </div>
+
+  <section class="login-brand" aria-label="{{ t('app.name') }}">
+    <a class="brand" href="/login">
+      <span class="brand-mark" aria-hidden="true">DN</span>
+      <span class="brand-name">{{ t('app.name') }}</span>
+    </a>
+    <div class="login-brand-copy">
+      <p class="eyebrow">Console</p>
+      <h1>{{ t('login.subtitle') }}</h1>
+      <p>{{ t('login.brand_help') }}</p>
+    </div>
+    <div class="login-brand-meta">
+      <span>{{ t('login.offline') }}</span>
+      <span class="mono">DNS · Nginx · SSL · UFW</span>
+    </div>
+  </section>
+
+  <main class="login-panel">
+    <div class="login-card">
+      <div>
+        <p class="eyebrow">{{ t('login.secure_access') }}</p>
+        <h2>{{ t('login.title') }}</h2>
+        <p class="muted small">{{ t('login.use_account') }}</p>
+      </div>
+      <form data-login-form data-next="{{ next_path }}" novalidate>
+        <label class="field" for="login-username">
+          {{ t('login.username') }}
+          <input id="login-username" name="username" autocomplete="username" required autofocus>
+        </label>
+        <label class="field" for="login-password">
+          {{ t('login.password') }}
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <div class="login-error" data-login-error role="alert" hidden></div>
+        <button class="btn btn-primary" type="submit" data-login-submit>{{ t('login.submit') }}</button>
+      </form>
+      <p class="muted tiny">{{ t('login.offline') }}</p>
+    </div>
   </main>
-  <script src="/static/app.js" defer></script>
+
+  <div class="toast-stack" id="toast-stack" role="status" aria-live="polite"></div>
+  <script type="application/json" id="i18n-data">{{ i18n|tojson }}</script>
+  <script type="module">
+    import { initShell, reportPageError } from "/static/js/core.js";
+    initShell();
+    import("/static/js/pages/login.js")
+      .then((module) => module.init && module.init())
+      .catch((error) => {
+        console.error(error);
+        reportPageError(error);
+      });
+  </script>
 </body>
 </html>

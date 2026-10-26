@@ -1,0 +1,22 @@
+{% macro icon(name, cls='icon') -%}
+<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="/static/icons.svg#icon-{{ name }}"></use></svg>
+{%- endmacro %}
+
+{% macro badge(text, tone='') -%}
+<span class="badge {{ tone }}">{{ text }}</span>
+{%- endmacro %}
+
+{% macro chip(text, tone='', extra='') -%}
+<span class="chip {{ tone }} {{ extra }}">{{ text }}</span>
+{%- endmacro %}
+
+{% macro empty(icon_name, message, extra='') -%}
+<div class="empty-state {{ extra }}">
+  {{ icon(icon_name) }}
+  <p>{{ message }}</p>
+</div>
+{%- endmacro %}
+
+{% macro field_label(text, name) -%}
+<label class="field" for="{{ name }}">{{ text }}</label>
+{%- endmacro %}

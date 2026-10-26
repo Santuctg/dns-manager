@@ -20,8 +20,22 @@ from app.api.firewall import router as firewall_router
 from app.web import router as web_router
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Serve static assets with revalidation so browsers pick up new files."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers.setdefault("cache-control", "no-cache")
+        return response
+
+
 app = FastAPI(title="DNS Manager", version="0.1.0")
-app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
+app.mount(
+    "/static",
+    RevalidatingStaticFiles(directory=str(Path(__file__).resolve().parent / "static")),
+    name="static",
+)
 app.include_router(auth_router)
 app.include_router(mappings_router)
 app.include_router(audit_router)

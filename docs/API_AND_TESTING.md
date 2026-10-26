@@ -30,7 +30,7 @@ Authenticated browser sessions and RBAC are required for operational endpoints. 
 python3 -m pytest -q
 python3 -m compileall -q app privileged
 bash -n packaging/install.sh
-node --check app/static/app.js
+for f in app/static/js/core.js app/static/js/pages/*.js; do node --input-type=module --check < "$f"; done
 ```
 
 Tests should run in an isolated test environment rather than the production host. Do not run production-impacting integration tests against live firewall services. The GitHub packaging archive was reconstructed from the 0.6.11 source and the documentation additions; documentation authoring is not a new software version.

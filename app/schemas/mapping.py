@@ -70,3 +70,4 @@ class MappingRead(MappingBase):
     version: int
     created_by: int | None
     updated_by: int | None
+    ssl_status: str | None = None
