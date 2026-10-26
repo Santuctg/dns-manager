@@ -94,6 +94,7 @@
   "dashboard.summary.pending": "পেন্ডিং পরিবর্তন",
   "dashboard.summary.certificates": "৩০ দিনের মধ্যে মেয়াদোত্তীর্ণ সার্টিফিকেট",
   "dashboard.mappings_breakdown": "মোট {total} · আপ {up} · ডাউন {down}",
+  "dashboard.mappings_total": "মোট {total}",
   "dashboard.sparklines": "শেষ দুই মিনিট",
   "dashboard.cpu": "CPU",
   "dashboard.ram": "RAM",

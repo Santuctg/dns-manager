@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.1 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.2 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -353,3 +353,96 @@ def test_login_page_smoke(console_page, live_console: str) -> None:
     finally:
         login_context.close()
     assert not problems, "\n".join(problems)
+
+
+@pytest.mark.browser
+def test_side_panel_actions_stay_reachable_on_short_screens(console_page, live_console: str) -> None:
+    """Drawers must keep their footer button on screen and scroll their body."""
+    page, _context, _errors = console_page
+    problems: list[str] = []
+    for width, height in ((1280, 600), (390, 560)):
+        page.set_viewport_size({"width": width, "height": height})
+        for name in ("mappings", "firewall", "ssl", "users", "roles"):
+            page.goto(f"{live_console}/app/{name}", wait_until="load")
+            page.wait_for_timeout(400)
+            issues = page.evaluate(
+                """() => {
+                    const out = [];
+                    document.querySelectorAll('dialog.side-panel').forEach((dialog) => {
+                        dialog.showModal();
+                        const vh = window.innerHeight;
+                        const body = dialog.querySelector('.side-panel-body');
+                        const foot = dialog.querySelector('.side-panel-foot');
+                        const footVisible = !foot || foot.getBoundingClientRect().bottom <= vh + 1;
+                        const needsScroll = body && body.scrollHeight > body.clientHeight + 1;
+                        const bodyScrolls = !needsScroll || /(auto|scroll)/.test(getComputedStyle(body).overflowY);
+                        if (!footVisible || !bodyScrolls) {
+                            out.push(`${dialog.className} footer=${footVisible} bodyScrolls=${bodyScrolls}`);
+                        }
+                        dialog.close();
+                    });
+                    return out;
+                }"""
+            )
+            problems.extend(f"{name} {width}x{height}: {issue}" for issue in issues)
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.browser
+def test_dashboard_summary_is_not_blocked_by_backend_probes(console_page, live_console: str) -> None:
+    """Slow backend probes must not delay the rest of the dashboard."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    page.add_init_script(
+        """
+        const realFetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.includes('/api/v1/system/backends')) return new Promise(() => {});
+            return realFetch(input, init);
+        };
+        """
+    )
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => !document.querySelector('[data-summary-mappings] .skeleton')",
+            timeout=3000,
+        )
+        state = page.evaluate(
+            """() => ({
+                mappings: document.querySelector('[data-summary-mappings]').textContent.trim(),
+                detail: document.querySelector('[data-summary-mappings-detail]').textContent.trim(),
+                pending: document.querySelector('[data-summary-pending]').textContent.trim(),
+            })"""
+        )
+    finally:
+        page.close()
+    assert state["mappings"] == "1"
+    assert "1" in state["detail"]
+    assert state["pending"] != ""
+
+
+@pytest.mark.browser
+def test_dashboard_metrics_failures_back_off(console_page, live_console: str) -> None:
+    """A permanently unavailable metrics endpoint must not be polled every second."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    calls: list[str] = []
+    page.route(
+        "**/api/v1/system/metrics",
+        lambda route: (
+            calls.append(route.request.url),
+            route.fulfill(
+                status=503,
+                content_type="application/json",
+                body='{"detail": "System metrics unavailable"}',
+            ),
+        ),
+    )
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        page.wait_for_timeout(5200)
+    finally:
+        page.close()
+    assert len(calls) <= 3, f"metrics endpoint was polled {len(calls)} times in 5s"

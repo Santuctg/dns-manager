@@ -94,6 +94,7 @@
   "dashboard.summary.pending": "Pending changes",
   "dashboard.summary.certificates": "Certificates expiring ≤ 30 days",
   "dashboard.mappings_breakdown": "{total} total · {up} up · {down} down",
+  "dashboard.mappings_total": "{total} total",
   "dashboard.sparklines": "Last two minutes",
   "dashboard.cpu": "CPU",
   "dashboard.ram": "RAM",

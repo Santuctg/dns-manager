@@ -14,23 +14,23 @@
 <section class="summary-strip" aria-label="{{ t('dashboard.title') }}">
   <a class="summary-card" href="/app/system">
     <span>{{ t('dashboard.summary.services') }}</span>
-    <strong data-summary-services>—</strong>
-    <small data-summary-services-detail>{{ t('common.loading') }}</small>
+    <strong data-summary-services><span class="skeleton skeleton-value" aria-hidden="true"></span></strong>
+    <small data-summary-services-detail><span class="skeleton skeleton-text" aria-hidden="true"></span></small>
   </a>
   <a class="summary-card" href="/app/mappings">
     <span>{{ t('dashboard.summary.mappings') }}</span>
-    <strong data-summary-mappings>—</strong>
-    <small data-summary-mappings-detail>{{ t('common.loading') }}</small>
+    <strong data-summary-mappings><span class="skeleton skeleton-value" aria-hidden="true"></span></strong>
+    <small data-summary-mappings-detail><span class="skeleton skeleton-text" aria-hidden="true"></span></small>
   </a>
   <a class="summary-card" href="/app/mappings" data-summary-card-pending>
     <span>{{ t('dashboard.summary.pending') }}</span>
-    <strong data-summary-pending>—</strong>
+    <strong data-summary-pending><span class="skeleton skeleton-value" aria-hidden="true"></span></strong>
     <small>{{ t('pending.saved') }}</small>
   </a>
   <a class="summary-card" href="/app/ssl">
     <span>{{ t('dashboard.summary.certificates') }}</span>
-    <strong data-summary-certificates>—</strong>
-    <small data-summary-certificates-detail>{{ t('common.loading') }}</small>
+    <strong data-summary-certificates><span class="skeleton skeleton-value" aria-hidden="true"></span></strong>
+    <small data-summary-certificates-detail><span class="skeleton skeleton-text" aria-hidden="true"></span></small>
   </a>
 </section>
 
@@ -50,7 +50,7 @@
         <strong data-spark-value="cpu">—</strong>
       </div>
       <svg class="sparkline" data-sparkline="cpu" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.cpu') }}"></svg>
-      <span class="muted tiny" data-spark-detail="cpu">{{ t('common.loading') }}</span>
+      <span class="muted tiny" data-spark-detail="cpu"><span class="skeleton skeleton-text" aria-hidden="true"></span></span>
     </div>
     <div class="spark-card sparkline-wrap">
       <div class="sparkline-head">
@@ -58,7 +58,7 @@
         <strong data-spark-value="memory">—</strong>
       </div>
       <svg class="sparkline" data-sparkline="memory" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.ram') }}"></svg>
-      <span class="muted tiny" data-spark-detail="memory">{{ t('common.loading') }}</span>
+      <span class="muted tiny" data-spark-detail="memory"><span class="skeleton skeleton-text" aria-hidden="true"></span></span>
     </div>
     <div class="spark-card sparkline-wrap">
       <div class="sparkline-head">
@@ -67,7 +67,7 @@
       </div>
       <svg class="sparkline" data-sparkline="rx" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.network') }} RX"></svg>
       <svg class="sparkline" data-sparkline="tx" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.network') }} TX"></svg>
-      <span class="muted tiny" data-spark-detail="network">{{ t('common.loading') }}</span>
+      <span class="muted tiny" data-spark-detail="network"><span class="skeleton skeleton-text" aria-hidden="true"></span></span>
     </div>
   </div>
 </section>
@@ -80,8 +80,9 @@
         <h2>{{ t('dashboard.attention') }}</h2>
       </div>
     </div>
-    <div class="attention-list" data-attention-list>
-      <p class="muted">{{ t('common.loading') }}</p>
+    <div class="attention-list" data-attention-list aria-busy="true">
+      <span class="skeleton skeleton-row" aria-hidden="true"></span>
+      <span class="skeleton skeleton-row" aria-hidden="true"></span>
     </div>
   </section>
 
@@ -93,8 +94,9 @@
       </div>
       <a class="btn btn-ghost btn-sm" href="/app/audit">{{ t('common.all') }}</a>
     </div>
-    <div class="event-list" data-recent-events>
-      <p class="muted">{{ t('common.loading') }}</p>
+    <div class="event-list" data-recent-events aria-busy="true">
+      <span class="skeleton skeleton-row" aria-hidden="true"></span>
+      <span class="skeleton skeleton-row" aria-hidden="true"></span>
     </div>
   </section>
 </div>

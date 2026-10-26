@@ -59,10 +59,28 @@ async function errorDetail(response) {
   }
 }
 
+const inflightGets = new Map();
+
 export async function api(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
+  if (method !== 'GET' || options.signal || options.dedupe === false) {
+    return request(url, { ...options, method });
+  }
+  // The shell and a page often ask for the same resource at the same time
+  // (status, pending changes). Share the in-flight GET instead of sending it
+  // twice; resolved responses are not cached.
+  const pending = inflightGets.get(url);
+  if (pending) return pending;
+  const promise = request(url, { ...options, method }).finally(() => inflightGets.delete(url));
+  inflightGets.set(url, promise);
+  return promise;
+}
+
+async function request(url, options) {
+  const method = options.method;
   const headers = new Headers(options.headers || {});
   const init = { ...options, method, headers, credentials: 'same-origin' };
+  delete init.dedupe;
   if (options.json !== undefined) {
     headers.set('Content-Type', 'application/json');
     init.body = JSON.stringify(options.json);

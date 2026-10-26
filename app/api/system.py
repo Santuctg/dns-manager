@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,7 +46,13 @@ def backends(
     _user: User = Depends(require_permission("system.view")),
 ):
     mappings = list(db.scalars(select(Mapping).order_by(Mapping.domain)).all())
-    return [check_backend(mapping) for mapping in mappings]
+    if len(mappings) <= 1:
+        return [check_backend(mapping) for mapping in mappings]
+    # Probe upstreams concurrently: each probe can wait for its own timeout, so
+    # a sequential loop makes the dashboard wait N × timeout for the slowest
+    # host. Order is preserved to match the mapping list.
+    with ThreadPoolExecutor(max_workers=min(8, len(mappings))) as pool:
+        return list(pool.map(check_backend, mappings))
 
 
 @router.get("/api/v1/system/backends/{mapping_id}")

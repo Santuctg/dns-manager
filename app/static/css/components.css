@@ -220,6 +220,31 @@
 }
 .empty-state .icon { width: 28px; height: 28px; color: var(--text-faint); }
 
+/* ---------------------------------------------------------------- skeleton */
+.skeleton {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 25%,
+    var(--surface-hover) 37%,
+    var(--surface-3) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-value { width: 52px; height: 22px; }
+.skeleton-text { width: 128px; max-width: 100%; height: 11px; }
+.skeleton-row { width: 100%; height: 34px; margin-bottom: var(--space-2); border-radius: var(--radius-md); }
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
 /* ---------------------------------------------------------------- tables */
 .table-wrap {
   width: 100%;
@@ -499,8 +524,18 @@ pre code { padding: 0; background: transparent; }
   flex-direction: column;
 }
 .side-panel::backdrop { background: rgb(0 0 0 / 55%); }
+/* Panels whose head, body and foot live inside a <form> must forward the
+   column layout to the form, otherwise the body cannot scroll and the action
+   button ends up below the viewport on short screens. */
+.side-panel > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
 .side-panel-head {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
@@ -518,6 +553,7 @@ pre code { padding: 0; background: transparent; }
 }
 .side-panel-foot {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5);

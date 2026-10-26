@@ -17,6 +17,16 @@ const state = {
 
 const sparks = {};
 
+// Each card renders as soon as its own request finishes instead of waiting for
+// the slowest endpoint (backend probes can take seconds on a real host).
+const loaded = {
+  status: false,
+  mappings: false,
+  backends: false,
+  pending: false,
+  certificates: false,
+};
+
 function setText(name, value) {
   const node = $(`[data-${name}]`);
   if (node) node.textContent = value;
@@ -39,30 +49,39 @@ function servicesSummary() {
 }
 
 function renderSummary() {
-  const { active, total } = servicesSummary();
-  setText('summary-services', `${active} / ${total}`);
-  setText('summary-services-detail', t('dashboard.services_active', { active, total }));
+  if (loaded.status || state.metrics) {
+    const { active, total } = servicesSummary();
+    setText('summary-services', `${active} / ${total}`);
+    setText('summary-services-detail', t('dashboard.services_active', { active, total }));
+  }
 
-  const up = state.backends.filter((row) => row.status === 'UP').length;
-  const down = state.backends.filter((row) => ['DOWN', 'HTTP_ERROR', 'TLS_ERROR', 'TIMEOUT'].includes(row.status)).length;
-  setText('summary-mappings', String(state.mappings.length || state.backends.length));
-  setText('summary-mappings-detail', t('dashboard.mappings_breakdown', {
-    total: state.mappings.length || state.backends.length,
-    up,
-    down,
-  }));
+  if (loaded.mappings || loaded.backends) {
+    const total = state.mappings.length || state.backends.length;
+    setText('summary-mappings', String(total));
+    if (loaded.backends) {
+      const up = state.backends.filter((row) => row.status === 'UP').length;
+      const down = state.backends.filter((row) => ['DOWN', 'HTTP_ERROR', 'TLS_ERROR', 'TIMEOUT'].includes(row.status)).length;
+      setText('summary-mappings-detail', t('dashboard.mappings_breakdown', { total, up, down }));
+    } else {
+      setText('summary-mappings-detail', t('dashboard.mappings_total', { total }));
+    }
+  }
 
-  setText('summary-pending', String(state.pending.count || 0));
-  const pendingCard = $('[data-summary-card-pending]');
-  if (pendingCard) pendingCard.classList.toggle('attention', Number(state.pending.count) > 0);
+  if (loaded.pending) {
+    setText('summary-pending', String(state.pending.count || 0));
+    const pendingCard = $('[data-summary-card-pending]');
+    if (pendingCard) pendingCard.classList.toggle('attention', Number(state.pending.count) > 0);
+  }
 
-  const expiring = state.certificates.filter((cert) => {
-    if (!cert.expires_at) return false;
-    const days = Math.ceil((new Date(cert.expires_at).getTime() - Date.now()) / 86400000);
-    return days <= 30;
-  }).length;
-  setText('summary-certificates', String(expiring));
-  setText('summary-certificates-detail', t('dashboard.expiring', { count: expiring }));
+  if (loaded.certificates) {
+    const expiring = state.certificates.filter((cert) => {
+      if (!cert.expires_at) return false;
+      const days = Math.ceil((new Date(cert.expires_at).getTime() - Date.now()) / 86400000);
+      return days <= 30;
+    }).length;
+    setText('summary-certificates', String(expiring));
+    setText('summary-certificates-detail', t('dashboard.expiring', { count: expiring }));
+  }
 }
 
 function attentionItems() {
@@ -115,6 +134,7 @@ function attentionItems() {
 function renderAttention() {
   const list = $('[data-attention-list]');
   if (!list) return;
+  list.setAttribute('aria-busy', 'false');
   const items = attentionItems();
   if (!items.length) {
     list.innerHTML = `<p class="muted small">${escapeHtml(t('dashboard.attention_empty'))}</p>`;
@@ -134,6 +154,7 @@ function renderAttention() {
 function renderEvents() {
   const list = $('[data-recent-events]');
   if (!list) return;
+  list.setAttribute('aria-busy', 'false');
   if (!state.events.length) {
     list.innerHTML = `<p class="muted small">${escapeHtml(t('dashboard.no_events'))}</p>`;
     return;
@@ -188,37 +209,42 @@ async function refreshMetrics() {
   try {
     state.metrics = await api('/api/v1/system/metrics');
     renderMetrics();
-  } catch {
+  } catch (error) {
     const sample = $('[data-dashboard-sample]');
     if (sample) sample.textContent = t('status.unavailable');
     for (const key of ['cpu', 'memory', 'network']) {
       setSpark('value', key, '—');
       setSpark('detail', key, t('common.not_available'));
     }
+    // Let poll() see the failure so it backs off instead of hammering a
+    // metrics endpoint that is permanently unavailable (e.g. no /proc).
+    throw error;
   }
 }
 
 async function loadDashboard() {
-  const [status, mappings, backends, pending, certificates, ufw, events] = await Promise.allSettled([
-    api('/api/v1/system/status'),
-    api('/api/v1/mappings'),
-    api('/api/v1/system/backends'),
-    api('/api/v1/config/pending'),
-    api('/api/v1/ssl/certificates'),
-    api('/api/v1/firewall/status'),
-    api('/api/v1/audit?limit=10'),
+  const apply = (promise, done) => promise.then((value) => {
+    done(value);
+    renderSummary();
+    renderAttention();
+  });
+  const results = await Promise.allSettled([
+    apply(api('/api/v1/system/status'), (value) => { state.status = value; loaded.status = true; }),
+    apply(api('/api/v1/mappings'), (value) => { state.mappings = value; loaded.mappings = true; }),
+    apply(api('/api/v1/system/backends'), (value) => { state.backends = value; loaded.backends = true; }),
+    apply(api('/api/v1/config/pending'), (value) => { state.pending = value; loaded.pending = true; }),
+    apply(api('/api/v1/ssl/certificates'), (value) => { state.certificates = value; loaded.certificates = true; }),
+    // Firewall state only feeds the attention list, no summary counter.
+    apply(api('/api/v1/firewall/status'), (value) => { state.ufw = value; }),
+    api('/api/v1/audit?limit=10').then((value) => {
+      state.events = value.slice(0, 10);
+      renderEvents();
+    }),
   ]);
-  if (status.status === 'fulfilled') state.status = status.value;
-  if (mappings.status === 'fulfilled') state.mappings = mappings.value;
-  if (backends.status === 'fulfilled') state.backends = backends.value;
-  if (pending.status === 'fulfilled') state.pending = pending.value;
-  if (certificates.status === 'fulfilled') state.certificates = certificates.value;
-  if (ufw.status === 'fulfilled') state.ufw = ufw.value;
-  if (events.status === 'fulfilled') state.events = events.value.slice(0, 10);
-  renderSummary();
-  renderAttention();
-  renderEvents();
-  await refreshMetrics();
+  if (results.every((result) => result.status === 'rejected')) {
+    const reason = results.find((result) => result.status === 'rejected')?.reason;
+    throw reason instanceof Error ? reason : new Error(t('common.error'));
+  }
 }
 
 export async function init() {
@@ -227,19 +253,22 @@ export async function init() {
   sparks.rx = createSparkline($('[data-sparkline="rx"]'), { toneName: 'good' });
   sparks.tx = createSparkline($('[data-sparkline="tx"]'), { toneName: 'warning' });
 
+  // Metrics are independent of the summary endpoints, so they start first and
+  // keep their own retry/backoff loop.
+  poll(refreshMetrics, 1000);
+
   try {
     await loadDashboard();
   } catch (error) {
     toast(error.message, 'critical');
   }
 
-  poll(refreshMetrics, 1000);
-
   $('[data-dashboard-refresh]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
     try {
-      await loadDashboard();
+      const [summary] = await Promise.allSettled([loadDashboard(), refreshMetrics()]);
+      if (summary.status === 'rejected') throw summary.reason;
       toast(t('common.success'), 'good');
     } catch (error) {
       toast(error.message, 'critical');
@@ -250,6 +279,7 @@ export async function init() {
 
   document.addEventListener('dns:pending-refreshed', (event) => {
     state.pending = event.detail || state.pending;
+    loaded.pending = true;
     renderSummary();
     renderAttention();
   });
