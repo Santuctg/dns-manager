@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block content %}
+<section class="page-hero">
+  <div class="page-intro">
+    <h2>{{ t('backups.title') }}</h2>
+    <p>{{ t('backups.subtitle') }}</p>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn btn-secondary" type="button" data-backup-refresh>
+      {{ icon('refresh', 'icon icon-sm') }}{{ t('common.refresh') }}
+    </button>
+    {% if can_backup_restore %}
+    <button class="btn btn-secondary" type="button" data-backup-upload>
+      {{ icon('upload', 'icon icon-sm') }}{{ t('backups.upload') }}
+    </button>
+    {% endif %}
+    <button class="btn btn-primary" type="button" data-backup-create>
+      {{ icon('plus', 'icon icon-sm') }}{{ t('backups.create') }}
+    </button>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('backups.title') }}</p>
+      <h2>{{ t('backups.title') }}</h2>
+      <p class="muted small" data-backups-summary>{{ t('common.loading') }}</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">{{ t('backups.created') }}</th>
+          <th scope="col">{{ t('backups.id') }}</th>
+          <th scope="col">{{ t('backups.label') }}</th>
+          <th scope="col">{{ t('backups.schema') }}</th>
+          <th scope="col">{{ t('backups.size') }}</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody data-backups-table>
+        <tr><td colspan="6" class="muted">{{ t('common.loading') }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog class="modal" data-backup-upload-dialog aria-labelledby="backup-upload-title">
+  <form data-backup-upload-form novalidate>
+    <div class="modal-head">
+      <h2 id="backup-upload-title">{{ t('backups.upload') }}</h2>
+      <button class="icon-btn" type="button" data-dialog-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+    </div>
+    <label class="field" for="backup-upload-file">
+      {{ t('backups.upload') }}
+      <input id="backup-upload-file" name="backup" type="file" accept=".tar.gz,.tgz,application/gzip" required>
+    </label>
+    <p class="muted small">{{ t('backups.restore_help') }}</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" data-dialog-close>{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" type="submit">{{ t('common.upload') }}</button>
+    </div>
+  </form>
+</dialog>
+
+{% if can_backup_restore %}
+<dialog class="side-panel" data-backup-restore-panel aria-labelledby="backup-restore-title">
+  <div class="side-panel-head">
+    <div>
+      <p class="eyebrow">{{ t('backups.restore') }}</p>
+      <h2 id="backup-restore-title">{{ t('backups.restore_title') }}</h2>
+    </div>
+    <button class="icon-btn" type="button" data-panel-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+  </div>
+  <div class="side-panel-body">
+    <p class="muted">{{ t('backups.restore_help') }}</p>
+    <dl class="kv">
+      <dt>{{ t('backups.id') }}</dt>
+      <dd><code data-backup-restore-id>—</code></dd>
+      <dt>{{ t('backups.created') }}</dt>
+      <dd><span data-backup-restore-created>—</span></dd>
+    </dl>
+    <label class="field restore-field" for="backup-restore-confirm">
+      {{ t('backups.type_to_confirm') }}
+      <input id="backup-restore-confirm" autocomplete="off" spellcheck="false" placeholder="BKP-…">
+    </label>
+    <div class="login-error" data-backup-restore-error role="alert" hidden></div>
+  </div>
+  <div class="side-panel-foot">
+    <button class="btn btn-secondary" type="button" data-panel-close>{{ t('common.cancel') }}</button>
+    <button class="btn btn-danger" type="button" data-backup-restore-confirm disabled>{{ t('backups.restore_confirm') }}</button>
+  </div>
+</dialog>
+{% endif %}
+{% endblock %}

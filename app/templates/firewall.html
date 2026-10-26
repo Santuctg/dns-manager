@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, empty %}
+{% block content %}
+<section class="page-hero">
+  <div class="page-intro">
+    <h2>{{ t('firewall.title') }}</h2>
+    <p>{{ t('firewall.subtitle') }}</p>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn btn-secondary" type="button" data-firewall-refresh>
+      {{ icon('refresh', 'icon icon-sm') }}{{ t('common.refresh') }}
+    </button>
+    <button class="btn btn-primary" type="button" data-firewall-add>
+      {{ icon('plus', 'icon icon-sm') }}{{ t('firewall.add') }}
+    </button>
+  </div>
+</section>
+
+<section class="summary-strip" aria-label="{{ t('firewall.title') }}">
+  <article class="summary-card">
+    <span>{{ t('firewall.ufw') }}</span>
+    <strong data-firewall="state">—</strong>
+    <small data-firewall="incoming-detail">{{ t('common.loading') }}</small>
+  </article>
+  <article class="summary-card">
+    <span>{{ t('firewall.incoming') }}</span>
+    <strong data-firewall="incoming">—</strong>
+    <small>{{ t('firewall.outgoing') }}: <span data-firewall="outgoing">—</span></small>
+  </article>
+  <article class="summary-card">
+    <span>{{ t('firewall.managed') }}</span>
+    <strong data-firewall="managed">—</strong>
+    <small data-firewall="unmanaged">—</small>
+  </article>
+  <article class="summary-card">
+    <span>{{ t('firewall.ssh') }}</span>
+    <strong data-firewall="ssh">—</strong>
+    <small data-firewall="ssh-state">—</small>
+  </article>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('common.warning') }}</p>
+      <h2>{{ t('firewall.findings') }}</h2>
+    </div>
+  </div>
+  <div class="firewall-findings" data-firewall-findings>
+    <p class="muted">{{ t('common.loading') }}</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('firewall.ufw') }}</p>
+      <h2>{{ t('firewall.policy') }}</h2>
+    </div>
+  </div>
+  <form class="firewall-policy" data-firewall-policy-form>
+    <label class="check">
+      <input type="checkbox" data-firewall-enabled>
+      <span class="check-text"><strong>{{ t('firewall.enable') }}</strong></span>
+    </label>
+    <label class="field" for="firewall-incoming">
+      {{ t('firewall.incoming') }}
+      <select id="firewall-incoming" data-firewall-incoming>
+        <option value="deny">deny</option>
+        <option value="reject">reject</option>
+      </select>
+    </label>
+    <label class="field" for="firewall-outgoing">
+      {{ t('firewall.outgoing') }}
+      <select id="firewall-outgoing" data-firewall-outgoing>
+        <option value="allow">allow</option>
+        <option value="deny">deny</option>
+      </select>
+    </label>
+    <button class="btn btn-secondary" type="submit">{{ t('firewall.save_policy') }}</button>
+  </form>
+  <div class="row spread policy-actions">
+    <p class="muted small" data-firewall-policy-state>{{ t('common.loading') }}</p>
+    <div class="toolbar-group">
+      <button class="btn btn-secondary" type="button" data-firewall-preview>{{ t('firewall.preview') }}</button>
+      <button class="btn btn-secondary" type="button" data-firewall-validate>{{ t('firewall.validate') }}</button>
+      <button class="btn btn-primary" type="button" data-firewall-apply>{{ t('firewall.apply') }}</button>
+      <button class="btn btn-danger" type="button" data-firewall-rollback>{{ t('firewall.rollback') }}</button>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('firewall.ufw') }}</p>
+      <h2>{{ t('firewall.rules') }}</h2>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">{{ t('firewall.col.purpose') }}</th>
+          <th scope="col">{{ t('firewall.col.action') }}</th>
+          <th scope="col">{{ t('firewall.col.protocol') }}</th>
+          <th scope="col">{{ t('firewall.col.port') }}</th>
+          <th scope="col">{{ t('firewall.col.source') }}</th>
+          <th scope="col">{{ t('firewall.col.comment') }}</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody data-firewall-rules>
+        <tr><td colspan="7" class="muted">{{ t('common.loading') }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="confirm-bar" data-firewall-confirm-bar hidden>
+  <span class="status-dot warning" aria-hidden="true"></span>
+  <div class="confirm-copy">
+    <strong data-firewall-countdown>120</strong>
+    <p data-firewall-confirm-text>{{ t('firewall.confirm_bar', seconds=120) }}</p>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn btn-primary btn-sm" type="button" data-firewall-confirm>{{ t('firewall.confirm') }}</button>
+    <button class="btn btn-danger btn-sm" type="button" data-firewall-rollback-now>{{ t('firewall.rollback_now') }}</button>
+  </div>
+</div>
+
+<dialog class="side-panel" data-firewall-panel aria-labelledby="firewall-panel-title">
+  <form data-firewall-form novalidate>
+    <div class="side-panel-head">
+      <div>
+        <p class="eyebrow">{{ t('firewall.ufw') }}</p>
+        <h2 id="firewall-panel-title" data-firewall-panel-title>{{ t('firewall.add') }}</h2>
+      </div>
+      <button class="icon-btn" type="button" data-panel-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+    </div>
+    <div class="side-panel-body">
+      <input type="hidden" name="id">
+      <div class="form-grid">
+        <label class="field" for="firewall-purpose">
+          {{ t('firewall.col.purpose') }}
+          <select id="firewall-purpose" name="purpose">
+            <option value="web">{{ t('firewall.purpose.web') }}</option>
+            <option value="dns">{{ t('firewall.purpose.dns') }}</option>
+            <option value="ssh">{{ t('firewall.purpose.ssh') }}</option>
+            <option value="custom">{{ t('firewall.purpose.custom') }}</option>
+          </select>
+        </label>
+        <label class="field" for="firewall-action">
+          {{ t('firewall.col.action') }}
+          <select id="firewall-action" name="action">
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+          </select>
+        </label>
+        <label class="field" for="firewall-protocol">
+          {{ t('firewall.col.protocol') }}
+          <select id="firewall-protocol" name="protocol">
+            <option value="tcp">tcp</option>
+            <option value="udp">udp</option>
+            <option value="both">both</option>
+          </select>
+        </label>
+        <label class="field" for="firewall-port-start">
+          {{ t('firewall.port_start') }}
+          <input id="firewall-port-start" name="port_start" type="number" min="1" max="65535" inputmode="numeric" required>
+        </label>
+        <label class="field" for="firewall-port-end">
+          {{ t('firewall.port_end') }}
+          <input id="firewall-port-end" name="port_end" type="number" min="1" max="65535" inputmode="numeric" placeholder="{{ t('common.optional') }}">
+        </label>
+        <label class="field span-2" for="firewall-comment">
+          {{ t('firewall.col.comment') }}
+          <input id="firewall-comment" name="comment" maxlength="255" autocomplete="off">
+        </label>
+      </div>
+      <div class="stack">
+        <span class="field">{{ t('firewall.col.source') }}</span>
+        <div class="firewall-source-list" data-firewall-source-list></div>
+        <div class="row spread">
+          <button class="btn btn-secondary btn-sm" type="button" data-firewall-source-add>{{ t('firewall.add_source') }}</button>
+          <span class="muted tiny" data-firewall-source-limit role="status">{{ t('firewall.source_limit') }}</span>
+        </div>
+      </div>
+      <label class="check" for="firewall-rule-enabled">
+        <input id="firewall-rule-enabled" name="enabled" type="checkbox" checked>
+        <span class="check-text"><strong>{{ t('common.enabled') }}</strong></span>
+      </label>
+    </div>
+    <div class="side-panel-foot">
+      <button class="btn btn-secondary" type="button" data-panel-close>{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" type="submit">{{ t('common.save') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

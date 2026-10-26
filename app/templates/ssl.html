@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block content %}
+<section class="page-hero">
+  <div class="page-intro">
+    <h2>{{ t('ssl.title') }}</h2>
+    <p>{{ t('ssl.subtitle') }}</p>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn btn-secondary" type="button" data-ssl-refresh>
+      {{ icon('refresh', 'icon icon-sm') }}{{ t('common.refresh') }}
+    </button>
+    <button class="btn btn-primary" type="button" data-ssl-add>
+      {{ icon('plus', 'icon icon-sm') }}{{ t('ssl.add') }}
+    </button>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">{{ t('nav.ssl') }}</p>
+      <h2>{{ t('ssl.title') }}</h2>
+      <p class="muted small" data-ssl-summary>{{ t('common.loading') }}</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table ssl-table">
+      <thead>
+        <tr>
+          <th scope="col">{{ t('ssl.domain') }}</th>
+          <th scope="col">{{ t('ssl.provider') }}</th>
+          <th scope="col">{{ t('ssl.status') }}</th>
+          <th scope="col">{{ t('ssl.expiry') }}</th>
+          <th scope="col">{{ t('ssl.auto_renew') }}</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody data-ssl-table>
+        <tr><td colspan="6" class="muted">{{ t('common.loading') }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog class="side-panel" data-ssl-panel aria-labelledby="ssl-panel-title">
+  <form data-ssl-form novalidate>
+    <div class="side-panel-head">
+      <div>
+        <p class="eyebrow">{{ t('nav.ssl') }}</p>
+        <h2 id="ssl-panel-title">{{ t('ssl.add') }}</h2>
+      </div>
+      <button class="icon-btn" type="button" data-panel-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+    </div>
+    <div class="side-panel-body">
+      <label class="field" for="ssl-domain">
+        {{ t('ssl.domain') }}
+        <input id="ssl-domain" name="domain" placeholder="panel.example.com" autocomplete="off" required>
+      </label>
+      <label class="field" for="ssl-provider">
+        {{ t('ssl.provider') }}
+        <select id="ssl-provider" name="provider" data-ssl-provider>
+          <option value="cloudflare">{{ t('ssl.provider.cloudflare') }}</option>
+          <option value="manual">{{ t('ssl.provider.manual') }}</option>
+          <option value="acme_dns_hosted">{{ t('ssl.provider.hosted') }}</option>
+          <option value="acme_delegation">{{ t('ssl.provider.acme_delegation') }}</option>
+        </select>
+      </label>
+      <label class="field" for="ssl-token" data-ssl-token-field>
+        {{ t('ssl.api_token') }}
+        <input id="ssl-token" name="api_token" type="password" autocomplete="new-password" placeholder="••••••••">
+      </label>
+      <label class="check" for="ssl-redirect">
+        <input id="ssl-redirect" name="redirect_http" type="checkbox" checked>
+        <span class="check-text"><strong>{{ t('ssl.redirect_http') }}</strong></span>
+      </label>
+      <p class="muted small">{{ t('ssl.subtitle') }}</p>
+    </div>
+    <div class="side-panel-foot">
+      <button class="btn btn-secondary" type="button" data-panel-close>{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" type="submit">{{ t('ssl.add') }}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="side-panel" data-ssl-manual-panel aria-labelledby="ssl-manual-title">
+  <div class="side-panel-head">
+    <div>
+      <p class="eyebrow">{{ t('ssl.provider.manual') }}</p>
+      <h2 id="ssl-manual-title">{{ t('ssl.manual_title') }}</h2>
+    </div>
+    <button class="icon-btn" type="button" data-panel-close aria-label="{{ t('common.close') }}">{{ icon('close') }}</button>
+  </div>
+  <div class="side-panel-body">
+    <p class="muted small">{{ t('ssl.manual_help') }}</p>
+    <dl class="kv">
+      <dt>{{ t('ssl.type') }}</dt>
+      <dd><code>TXT</code></dd>
+      <dt>{{ t('ssl.name') }}</dt>
+      <dd><code data-ssl-manual-name>—</code></dd>
+      <dt>{{ t('common.value') }}</dt>
+      <dd><code data-ssl-manual-value>—</code></dd>
+    </dl>
+    <p class="muted small" data-ssl-manual-status role="status"></p>
+  </div>
+  <div class="side-panel-foot">
+    <button class="btn btn-secondary" type="button" data-panel-close>{{ t('common.close') }}</button>
+    <button class="btn btn-primary" type="button" data-ssl-manual-check>{{ t('ssl.manual_check') }}</button>
+  </div>
+</dialog>
+{% endblock %}

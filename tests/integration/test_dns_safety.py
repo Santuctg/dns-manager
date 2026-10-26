@@ -115,10 +115,11 @@ def test_installer_runs_dns_safety_validation_before_starting_services():
 def test_system_page_exposes_dns_safety_badge_and_expected_bind_address():
     root = Path(__file__).resolve().parents[2]
     template = (root / "app" / "templates" / "system.html").read_text()
-    javascript = (root / "app" / "static" / "app.js").read_text()
+    javascript = (root / "app" / "static" / "js" / "pages" / "system.js").read_text()
     assert 'data-system="dns_safety"' in template
     assert 'data-system="dns_bind"' in template
-    assert 's.dns_safety' in javascript
+    assert "state.status?.dns_safety" in javascript
+    assert "expected_ip" in javascript
 
 
 def test_public_unicast_expected_dns_ip_is_allowed_when_exactly_bound():

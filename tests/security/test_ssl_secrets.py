@@ -69,8 +69,15 @@ def test_cloudflare_conversion_token_is_absent_from_audit(monkeypatch,tmp_path):
 
 
 def test_global_modal_does_not_persist_prompt_secrets_in_browser_storage():
-    text = __import__('pathlib').Path('app/static/app.js').read_text()
-    assert 'localStorage.setItem' not in text
-    assert 'sessionStorage.setItem' not in text
-    assert 'input.value=\'\'' in text or 'input.value = \'\'' in text
-    assert 'textContent' in text
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    core = (root / 'app/static/js/core.js').read_text()
+    ssl = (root / 'app/static/js/pages/ssl.js').read_text()
+    assert 'localStorage' not in ssl
+    assert 'sessionStorage' not in ssl
+    assert 'sessionStorage' not in core
+    # The only storage use is the sidebar preference, never a prompt value.
+    assert core.count('localStorage.setItem') == 1
+    assert 'dns_manager_sidebar' in core
+    assert "input.value = ''" in core
+    assert 'textContent' in core
