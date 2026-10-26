@@ -69,3 +69,33 @@ def test_reconcile_all_uses_privileged_helper_by_default(tmp_path):
         assert row.status=='ISSUED'
         assert row.issuer=="CN=Let's Encrypt"
         assert row.expires_at.replace(tzinfo=None).isoformat()=='2027-01-08T07:30:50'
+
+
+def test_reconcile_all_keeps_the_list_when_one_certificate_cannot_be_read(tmp_path):
+    from sqlalchemy.orm import Session
+    from app.database import Base, build_engine
+    from app.models.ssl import SslCertificate
+    from app.services.ssl_service import reconcile_all_certificates
+
+    class Helper:
+        def ssl_status(self, domain):
+            if domain == 'broken.example.com':
+                raise OSError('helper socket missing')
+            return {'domain': domain, 'certificate_present': True, 'status': 'ISSUED'}
+
+    engine = build_engine(str(tmp_path / 'partial-reconcile.db'))
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(SslCertificate(domain='broken.example.com', provider='manual', status='ISSUED'))
+        db.add(SslCertificate(domain='good.example.com', provider='manual', status='NOT_ISSUED'))
+        db.commit()
+        result = reconcile_all_certificates(db, helper=Helper())
+        rows = {row.domain: row for row in db.query(SslCertificate).all()}
+
+    assert {item['domain']: item['status'] for item in result} == {
+        'broken.example.com': 'ERROR',
+        'good.example.com': 'ISSUED',
+    }
+    assert rows['broken.example.com'].status == 'ERROR'
+    assert 'helper socket missing' in rows['broken.example.com'].last_error
+    assert rows['good.example.com'].status == 'ISSUED'

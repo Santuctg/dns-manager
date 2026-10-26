@@ -13,12 +13,17 @@ from app.models.mapping import Mapping
 from app.models.revision import ConfigRevision
 from app.models.ssl import SslCertificate
 from app.services.dns_service import render_dnsmasq_config
-from app.services.nginx_service import render_nginx_config
+from app.services.nginx_service import render_https_vhost, render_nginx_config
 from app.services.privileged_helper import PrivilegedHelper
 from app.services.revision_service import create_revision, mark_revision_status
+from app.services.audit_service import record_audit_event
 
 DEFAULT_GENERATED_DIR = Path("/var/lib/dns-manager/generated")
 DEFAULT_LOCK_PATH = Path("/run/dns-manager/apply.lock")
+
+# A certificate in either state can serve HTTPS, so both keep the HTTPS vhost
+# in sync and suppress the duplicate plain-HTTP server block.
+SSL_VHOST_STATUSES = frozenset({"ISSUED", "EXPIRING"})
 
 
 class ConfigLockedError(RuntimeError):
@@ -33,19 +38,83 @@ def _ssl_redirect_domains(db: Session) -> set[str]:
     rows = db.scalars(
         select(SslCertificate.domain).where(
             SslCertificate.redirect_http.is_(True),
-            SslCertificate.status == "ISSUED",
+            SslCertificate.status.in_(sorted(SSL_VHOST_STATUSES)),
         )
     ).all()
     return {str(domain).strip().lower().rstrip(".") for domain in rows}
 
 
-def preview_config(db: Session, *, internal_proxy_ip: str) -> dict[str, str]:
+def _ssl_upstream(mapping: Mapping) -> dict:
+    return {
+        "scheme": mapping.upstream_scheme,
+        "host": mapping.upstream_host,
+        "port": mapping.upstream_port,
+        "preserve_host": mapping.preserve_host,
+        "websocket_enabled": mapping.websocket_enabled,
+        "timeout": mapping.custom_timeout or 60,
+    }
+
+
+def sync_ssl_vhosts(db: Session, *, helper: PrivilegedHelper, user=None) -> dict[str, list]:
+    """Rewrite the HTTPS vhost of every enabled mapping that has a valid certificate.
+
+    Failures are reported and audited but never undo the configuration apply.
+    """
+    certificates = {
+        str(cert.domain).strip().lower().rstrip("."): cert
+        for cert in db.scalars(select(SslCertificate)).all()
+    }
+    updated: list[str] = []
+    failed: list[dict[str, str]] = []
+    for mapping in _mappings(db):
+        if not mapping.enabled:
+            continue
+        domain = str(mapping.domain).strip().lower().rstrip(".")
+        certificate = certificates.get(domain)
+        if certificate is None or certificate.status not in SSL_VHOST_STATUSES:
+            continue
+        try:
+            helper.ssl_apply(domain, certificate.redirect_http, upstream=_ssl_upstream(mapping))
+        except Exception as exc:  # noqa: BLE001 - a sync failure must not undo the apply
+            failed.append({"domain": domain, "error": str(exc)})
+            record_audit_event(
+                db,
+                user=user,
+                action="SSL_SYNC_FAILED",
+                object_type="ssl_certificate",
+                object_id=domain,
+                status="failed",
+                error_message=str(exc),
+            )
+        else:
+            updated.append(domain)
+    return {"updated": updated, "failed": failed}
+
+
+
+def preview_config(db: Session, *, internal_proxy_ip: str) -> dict[str, object]:
     mappings = _mappings(db)
+    certificates = {
+        str(cert.domain).strip().lower().rstrip("."): cert
+        for cert in db.scalars(select(SslCertificate)).all()
+    }
+    ssl_vhosts: dict[str, str] = {}
+    for mapping in mappings:
+        if not mapping.enabled:
+            continue
+        domain = str(mapping.domain).strip().lower().rstrip(".")
+        certificate = certificates.get(domain)
+        if certificate is None or certificate.status not in SSL_VHOST_STATUSES:
+            continue
+        ssl_vhosts[domain] = render_https_vhost(
+            domain, mapping, redirect_http=bool(certificate.redirect_http)
+        )
     return {
         "dnsmasq_config": render_dnsmasq_config(mappings, internal_proxy_ip),
         "nginx_config": render_nginx_config(
             mappings, skip_http_domains=_ssl_redirect_domains(db)
         ),
+        "ssl_vhosts": ssl_vhosts,
     }
 
 
@@ -181,6 +250,8 @@ def apply_pending_config(
     helper: PrivilegedHelper | None = None,
     generated_dir: Path = DEFAULT_GENERATED_DIR,
     lock_path: Path = DEFAULT_LOCK_PATH,
+    user=None,
+    ssl_sync_out: dict | None = None,
 ) -> ConfigRevision:
     helper = helper or PrivilegedHelper()
     with _apply_lock(lock_path):
@@ -196,7 +267,11 @@ def apply_pending_config(
         except Exception:
             mark_revision_status(db, revision, "failed")
             raise
-        return mark_revision_status(db, revision, "active")
+        revision = mark_revision_status(db, revision, "active")
+        sync_result = sync_ssl_vhosts(db, helper=helper, user=user)
+        if ssl_sync_out is not None:
+            ssl_sync_out.update(sync_result)
+        return revision
 
 
 def _rollback_target(db: Session, current: ConfigRevision) -> ConfigRevision | None:

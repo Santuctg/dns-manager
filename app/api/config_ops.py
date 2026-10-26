@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -17,7 +18,12 @@ from app.services.apply_service import (
 )
 from app.services.audit_service import record_audit_event
 from app.services.auth_service import resolve_session
-from app.services.revision_service import get_pending_change_count
+from app.services.revision_service import (
+    get_active_revision,
+    get_pending_change_count,
+    get_pending_domains,
+    list_revisions,
+)
 
 router = APIRouter(prefix="/api/v1/config", tags=["configuration"])
 
@@ -53,7 +59,56 @@ def preview(
     _user: User = Depends(require_permission("config.apply")),
 ):
     result = preview_config(db, internal_proxy_ip=_internal_proxy_ip())
-    return {**result, "pending_change_count": get_pending_change_count(db)}
+    active = get_active_revision(db)
+    return {
+        **result,
+        "pending_change_count": get_pending_change_count(db),
+        "active_revision_id": active.id if active else None,
+        "active_revision": active.revision if active else None,
+        "active_dnsmasq_config": active.dnsmasq_config if active else None,
+        "active_nginx_config": active.nginx_config if active else None,
+    }
+
+
+@router.get("/pending")
+def pending(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("mapping.view")),
+):
+    domains = get_pending_domains(db)
+    return {"count": len(domains), "domains": domains}
+
+
+@router.get("/revisions")
+def revisions(
+    page: int = 1,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("config.rollback")),
+):
+    rows, total = list_revisions(db, page=page, per_page=50)
+    creator_ids = {row.created_by for row in rows if row.created_by is not None}
+    usernames = {
+        user_id: username
+        for user_id, username in db.execute(
+            select(User.id, User.username).where(User.id.in_(creator_ids))
+        ).all()
+    } if creator_ids else {}
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "revision": row.revision,
+                "created_at": row.created_at,
+                "created_by": row.created_by,
+                "created_by_username": usernames.get(row.created_by),
+                "status": row.status,
+            }
+            for row in rows
+        ],
+        "total": total,
+        "page": max(int(page), 1),
+        "per_page": 50,
+    }
 
 
 @router.post("/validate")
@@ -93,11 +148,14 @@ def apply(
     user: User = Depends(require_permission("config.apply")),
 ):
     _require_csrf(request, db)
+    ssl_sync: dict = {"updated": [], "failed": []}
     try:
         revision = apply_pending_config(
             db,
             internal_proxy_ip=_internal_proxy_ip(),
             created_by=user.id,
+            user=user,
+            ssl_sync_out=ssl_sync,
         )
     except ConfigLockedError:
         raise HTTPException(status_code=409, detail="CONFIG_LOCKED")
@@ -113,7 +171,12 @@ def apply(
         object_id=revision.id, source_ip=_client_ip(request), user_agent=request.headers.get("user-agent"),
         new_value={"revision": revision.revision, "status": revision.status},
     )
-    return {"revision_id": revision.id, "revision": revision.revision, "status": revision.status}
+    return {
+        "revision_id": revision.id,
+        "revision": revision.revision,
+        "status": revision.status,
+        "ssl_sync": ssl_sync,
+    }
 
 
 @router.post("/rollback/{revision_id}")
