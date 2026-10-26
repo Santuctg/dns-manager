@@ -276,7 +276,9 @@
   background: var(--surface-1);
 }
 .ssl-form > label { flex: 1 1 200px; }
-.ssl-table td:last-child { width: 1%; white-space: nowrap; }
+@media (min-width: 768px) {
+  .ssl-table td:last-child { width: 1%; white-space: nowrap; }
+}
 
 /* ---------------------------------------------------------------- backups */
 .backup-id { font-family: var(--font-mono); font-size: var(--text-xs); }
@@ -337,8 +339,10 @@ fieldset > legend {
   backdrop-filter: blur(8px);
 }
 .audit-filters > label { flex: 1 1 150px; }
-.audit-table td { white-space: nowrap; }
-.audit-table td:nth-child(3) { white-space: normal; min-width: 180px; }
+@media (min-width: 768px) {
+  .audit-table td { white-space: nowrap; }
+  .audit-table td:nth-child(3) { white-space: normal; min-width: 180px; }
+}
 .audit-table .muted { white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 767px) {
   .audit-filters { position: static; }

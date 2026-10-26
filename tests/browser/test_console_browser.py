@@ -229,6 +229,27 @@ def _visit(page, context, errors: list[str], *, base_url: str, page_name: str, w
                 parts.push(text);
                 length += text.length;
             }
+            const vw = document.documentElement.clientWidth;
+            const isVisible = (element) => {
+                const style = getComputedStyle(element);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                return !(element.closest('details:not([open])') && element.tagName !== 'SUMMARY');
+            };
+            const insideScroller = (element) => {
+                for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+                    if (/(auto|scroll)/.test(getComputedStyle(parent).overflowX)) return true;
+                }
+                return false;
+            };
+            const offscreen = [];
+            document.querySelectorAll('main *').forEach((element) => {
+                if (!isVisible(element) || insideScroller(element)) return;
+                const rect = element.getBoundingClientRect();
+                if (!rect.width || !rect.height) return;
+                if (rect.right > vw + 2 || rect.left < -2) {
+                    offscreen.push(`${element.tagName}.${String(element.className)} ${Math.round(rect.left)}..${Math.round(rect.right)}`);
+                }
+            });
             return {
                 page: document.body.dataset.page || '',
                 lang: document.documentElement.lang,
@@ -240,6 +261,7 @@ def _visit(page, context, errors: list[str], *, base_url: str, page_name: str, w
                 plexSans: document.fonts.check('400 16px "IBM Plex Sans"'),
                 bengali: document.fonts.check('400 16px "Noto Sans Bengali"'),
                 text: parts.join('\\n'),
+                offscreen: offscreen.slice(0, 5),
             };
         }"""
     )
@@ -258,6 +280,8 @@ def _visit(page, context, errors: list[str], *, base_url: str, page_name: str, w
         problems.append(f"{label}: IBM Plex Sans did not load")
     if lang == "bn" and not state["bengali"]:
         problems.append(f"{label}: Noto Sans Bengali did not load")
+    for element in state["offscreen"]:
+        problems.append(f"{label}: element outside the viewport: {element}")
 
     for prefix in RAW_KEY_PREFIXES:
         match = RAW_KEY_RE.search(state["text"])
