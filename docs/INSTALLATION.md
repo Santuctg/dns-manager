@@ -24,9 +24,9 @@ For first-time installations, the database backup command only applies if the da
 
 ```bash
 cd /root
-unzip -t dns-manager-0.6.11-documented.zip
+unzip -t dns-manager-0.7.0-documented.zip
 mkdir -p /tmp/dnsmgr-release
-unzip -q dns-manager-0.6.11-documented.zip -d /tmp/dnsmgr-release
+unzip -q dns-manager-0.7.0-documented.zip -d /tmp/dnsmgr-release
 DNS_MANAGER_INTERNAL_PROXY_IP=<YOUR_DNS_LISTEN_IP>   bash /tmp/dnsmgr-release/dns-manager/packaging/install.sh
 ```
 
@@ -43,7 +43,7 @@ ufw status verbose
 journalctl -u dns-manager -n 100 --no-pager
 ```
 
-Expected version `0.6.11`; health typically returns `{"status":"ok","database":"ok"}`. Service health does not prove public DNS routing or firewall reachability; test those from appropriate client networks.
+Expected version `0.7.0`; health typically returns `{"status":"ok","database":"ok"}`. Service health does not prove public DNS routing or firewall reachability; test those from appropriate client networks.
 
 ## First-time account setup
 

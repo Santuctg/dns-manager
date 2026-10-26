@@ -12,7 +12,7 @@ ufw status verbose
 
 ## HTTP 422 on firewall source CIDRs
 
-After an upgrade, validate the active `/openapi.json` contract and restart the app if old Gunicorn workers are still running. 0.6.11 installer explicitly restarts `dns-manager.service` and waits for health readiness.
+After an upgrade, validate the active `/openapi.json` contract and restart the app if old Gunicorn workers are still running. The installer explicitly restarts `dns-manager.service` and waits for health readiness.
 
 ## Monitoring not updating
 

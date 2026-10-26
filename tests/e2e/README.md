@@ -47,7 +47,7 @@ curl --resolve task19-acceptance.internal:80:192.168.128.2 http://task19-accepta
 
 5. Delete and apply the test mapping; verify DNS no longer answers the managed address.
 
-6. Restore the controlled backup from System → Backup & Restore. Re-login if the restored session state invalidates the current browser session. Verify the mapping and live DNS/Nginx config return.
+6. Restore the controlled backup from the Backups page. Re-login if the restored session state invalidates the current browser session. Verify the mapping and live DNS/Nginx config return.
 
 7. Verify audit actions, pending changes, helper status and DNS safety are clean. Remove the acceptance mapping and apply one final time so production returns to its pre-test state.
 

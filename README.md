@@ -10,7 +10,7 @@
 >
 > **Typical use:** Route `app.example.com` to `192.168.1.20:8080`, preview its Nginx and local DNS configuration, validate and apply it, manage HTTPS, restrict inbound access by CIDR and monitor the server.
 
-**Current release:** [v0.6.11](https://github.com/Santuctg/dns-manager/releases/tag/v0.6.11) · **Deployment:** Linux host with systemd, Nginx and dnsmasq · **Docker image:** not provided.
+**Current release:** [v0.7.0](https://github.com/Santuctg/dns-manager/releases/tag/v0.7.0) · **Deployment:** Linux host with systemd, Nginx and dnsmasq · **Docker image:** not provided.
 
 ---
 
@@ -126,7 +126,7 @@ This is a **host-installed application**, **not a Docker Compose stack**. Review
 
 ### 1. Download the versioned package
 
-Download the ZIP asset from **[Releases](https://github.com/Santuctg/dns-manager/releases/tag/v0.6.11)** and transfer it to the target server. For a fresh install, follow the installation guide for initial account bootstrap and host preparation.
+Download the ZIP asset from **[Releases](https://github.com/Santuctg/dns-manager/releases/tag/v0.7.0)** and transfer it to the target server. For a fresh install, follow the installation guide for initial account bootstrap and host preparation.
 
 ### 2. Back up an existing installation
 
@@ -149,9 +149,9 @@ Also back up the relevant Nginx, dnsmasq and application settings outside this w
 
 ```bash
 cd /root
-unzip -t dns-manager-0.6.11-documented.zip
+unzip -t dns-manager-0.7.0-documented.zip
 mkdir -p /tmp/dnsmgr-release
-unzip -q dns-manager-0.6.11-documented.zip -d /tmp/dnsmgr-release
+unzip -q dns-manager-0.7.0-documented.zip -d /tmp/dnsmgr-release
 
 # Replace the example with the DNS/proxy address intended for your host:
 DNS_MANAGER_INTERNAL_PROXY_IP=192.0.2.10 \
@@ -170,7 +170,7 @@ curl -fsS http://127.0.0.1:8500/health
 ufw status verbose
 ```
 
-Expected version: `0.6.11`. The health endpoint normally returns:
+Expected version: `0.7.0`. The health endpoint normally returns:
 
 ```json
 {"status":"ok","database":"ok"}
@@ -209,7 +209,7 @@ dns-manager/
 | [Architecture & security](docs/ARCHITECTURE.md) | Components, trust boundaries and state transitions |
 | [API & testing](docs/API_AND_TESTING.md) | API overview, authentication and test procedures |
 | [Operations / troubleshooting](docs/OPERATIONS.md) | Health, diagnostics, recovery and operations |
-| [Release notes](docs/RELEASE-0.6.11.md) | Changes through v0.6.11 |
+| [Release notes](docs/RELEASE-0.7.0.md) | Changes through v0.7.0 |
 | [Design history](docs/superpowers/) | Detailed development plans and specifications |
 
 ---
@@ -246,7 +246,7 @@ For more scenarios, see [Operations](docs/OPERATIONS.md).
 
 ## 📄 License
 
-No license file is included in v0.6.11. **Public source availability does not grant an open-source license.** The project owner should select and publish a license before third-party redistribution or reuse is encouraged.
+No license file is included in v0.7.0. **Public source availability does not grant an open-source license.** The project owner should select and publish a license before third-party redistribution or reuse is encouraged.
 
 ---
 
