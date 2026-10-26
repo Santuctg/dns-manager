@@ -1,21 +1,32 @@
+"""The shared poller keeps the 1-second cadence, backs off, and pauses when hidden."""
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_monitoring_uses_one_second_success_interval_and_dynamic_backoff():
-    js = (ROOT / 'app/static/app.js').read_text()
-    section = js.split('function startHostMonitoring()', 1)[1].split('async function logout()', 1)[0]
-    assert 'const MONITOR_POLL_MS = 1000' in section
-    assert 'const MONITOR_MAX_BACKOFF_MS = 30000' in section
-    assert 'setTimeout(fetchOnce, nextDelayMs)' in section
-    assert 'Math.min(MONITOR_MAX_BACKOFF_MS' in section
-    assert 'setInterval(fetchOnce' not in section
-    assert 'inFlight || stopped || document.hidden' in section
-    assert 'clearTimeout(timer)' in section
+def test_poller_uses_one_second_success_interval_and_dynamic_backoff():
+    source = (ROOT / "app" / "static" / "js" / "core.js").read_text(encoding="utf-8")
+    section = source.split("export function poll(", 1)[1].split("// ------------------------------------------------------------------ shell chrome", 1)[0]
+    assert "intervalMs = 1000" in section
+    assert "maxBackoff = 30000" in section
+    assert "document.hidden" in section
+    assert "setTimeout" in section
+    assert "clearTimeout" in section
+    assert "Math.min(" in section
 
 
-def test_one_second_monitoring_label_and_version():
-    js = (ROOT / 'app/static/app.js').read_text()
-    assert 'Live · updates every 1 second' in js
-    assert (ROOT / 'VERSION').read_text().strip() == '0.6.11'
+def test_every_page_uses_the_shared_poller():
+    pages = ROOT / "app" / "static" / "js" / "pages"
+    dashboard = (pages / "dashboard.js").read_text(encoding="utf-8")
+    system = (pages / "system.js").read_text(encoding="utf-8")
+    firewall = (pages / "firewall.js").read_text(encoding="utf-8")
+    assert "poll(" in dashboard
+    assert "poll(" in system
+    assert "setInterval" not in dashboard or "poll(" in dashboard
+    assert "refreshMetrics" in system
+    assert "countdown" in firewall
+
+
+def test_version_is_the_console_release():
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "0.7.0"

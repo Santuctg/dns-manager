@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.mapping import Mapping
@@ -97,11 +97,30 @@ def get_active_revision(db: Session) -> ConfigRevision | None:
     ).first()
 
 
-def get_pending_change_count(db: Session) -> int:
+def get_pending_domains(db: Session) -> list[str]:
     current = json.loads(_snapshot_current_mappings(db))
     active = get_active_revision(db)
     if active is None:
-        return len(current)
+        return sorted(current)
     previous = json.loads(active.mapping_snapshot or "{}")
     domains = set(current) | set(previous)
-    return sum(1 for domain in domains if current.get(domain) != previous.get(domain))
+    return sorted(domain for domain in domains if current.get(domain) != previous.get(domain))
+
+
+def get_pending_change_count(db: Session) -> int:
+    return len(get_pending_domains(db))
+
+
+def list_revisions(db: Session, *, page: int = 1, per_page: int = 50) -> tuple[list[ConfigRevision], int]:
+    page = max(int(page), 1)
+    per_page = min(max(int(per_page), 1), 200)
+    total = int(db.scalar(select(func.count(ConfigRevision.id))) or 0)
+    rows = list(
+        db.scalars(
+            select(ConfigRevision)
+            .order_by(ConfigRevision.created_at.desc(), ConfigRevision.id.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        ).all()
+    )
+    return rows, total
