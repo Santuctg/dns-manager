@@ -51,7 +51,7 @@ def test_tmpfiles_and_installer_define_expected_permissions_and_remove_legacy_su
 
 def test_package_has_version_metadata():
     version = (ROOT / "VERSION").read_text().strip()
-    assert version == "0.7.1"
+    assert version == "0.7.2"
 
 
 def test_installer_overlays_python_crypto_dependencies_before_requirements():
@@ -89,7 +89,7 @@ def test_acme_zone_storage_is_root_owned_and_outside_service_tree():
 
 
 def test_release_version_is_042_metadata():
-    assert (ROOT/'VERSION').read_text().strip()=='0.7.1'
+    assert (ROOT/'VERSION').read_text().strip()=='0.7.2'
 
 
 def test_knot_no_longer_gets_access_to_the_service_owned_tree():
@@ -157,7 +157,7 @@ def test_hosted_release_installs_hosted_hook_and_config_without_default_knot_dep
 
 
 def test_hosted_release_version_is_042():
-    assert (ROOT/'VERSION').read_text().strip()=='0.7.1'
+    assert (ROOT/'VERSION').read_text().strip()=='0.7.2'
 
 
 def test_041_installer_migrates_database_explicitly_before_starting_application_service():
@@ -185,7 +185,7 @@ def test_041_installer_restarts_privileged_helper_after_installing_new_code():
 
 
 def test_release_version_is_042():
-    assert (ROOT/'VERSION').read_text().strip()=='0.7.1'
+    assert (ROOT/'VERSION').read_text().strip()=='0.7.2'
 
 
 def test_053_installer_escapes_replaced_working_directory_before_python_module_calls():
@@ -292,4 +292,4 @@ def test_067_installer_restarts_app_after_upgrade_and_waits_for_health():
 
 
 def test_067_release_version_metadata():
-    assert (ROOT / 'VERSION').read_text().strip() == '0.7.1'
+    assert (ROOT / 'VERSION').read_text().strip() == '0.7.2'
