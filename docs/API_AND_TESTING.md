@@ -33,4 +33,18 @@ bash -n packaging/install.sh
 for f in app/static/js/core.js app/static/js/pages/*.js; do node --input-type=module --check < "$f"; done
 ```
 
-Tests should run in an isolated test environment rather than the production host. Do not run production-impacting integration tests against live firewall services. The GitHub packaging archive was reconstructed from the 0.6.11 source and the documentation additions; documentation authoring is not a new software version.
+Tests should run in an isolated test environment rather than the production host. Do not run production-impacting integration tests against live firewall services.
+
+### Optional browser smoke test
+
+The console smoke test renders the sign-in page and every console page at 1440 px and 390 px in both themes and both languages. It fails on horizontal overflow, missing bundled fonts, raw translation keys and console errors.
+
+The test is marked `browser` and skips automatically when Playwright or Chromium is not installed, so it is not part of the runtime requirements. Install it only on a development machine:
+
+```bash
+python3 -m pip install "playwright>=1.40,<2"
+python3 -m playwright install chromium
+python3 -m pytest -m browser -q
+```
+
+The test starts its own uvicorn server with a temporary SQLite database and seeded accounts, so it does not touch the production database or host services. The expected `503` from `/api/v1/system/metrics` on hosts without `/proc` is ignored.
