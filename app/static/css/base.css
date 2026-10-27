@@ -297,9 +297,8 @@ body.sidebar-collapsed .shell {
   text-overflow: ellipsis;
 }
 .rail-toggle {
-  position: absolute;
-  right: -12px;
-  top: 26px;
+  align-self: flex-end;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
   width: 24px;
@@ -320,6 +319,7 @@ body.sidebar-collapsed .sidebar-footer .btn span {
 }
 body.sidebar-collapsed .nav-group { gap: var(--space-1); }
 body.sidebar-collapsed .nav-item { justify-content: center; padding: var(--space-2); }
+body.sidebar-collapsed .rail-toggle { align-self: center; }
 body.sidebar-collapsed .rail-toggle .icon { transform: rotate(180deg); }
 
 .main-col {

@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.5 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.6 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -374,6 +374,40 @@ def test_implicit_text_inputs_match_other_form_controls(console_page, live_conso
     finally:
         login_context.close()
     assert styles[0] == styles[1]
+
+
+@pytest.mark.browser
+def test_firewall_policy_controls_are_readable_and_responsive(console_page, live_console: str) -> None:
+    page, _context, _errors = console_page
+    for width in (1280, 390):
+        page.set_viewport_size({"width": width, "height": 800})
+        page.goto(f"{live_console}/app/firewall", wait_until="load")
+        incoming = page.locator('#firewall-incoming').bounding_box()
+        outgoing = page.locator('#firewall-outgoing').bounding_box()
+        assert incoming and outgoing
+        assert incoming['width'] >= 140 and outgoing['width'] >= 140
+        if width < 560:
+            assert outgoing['y'] >= incoming['y'] + incoming['height']
+        else:
+            assert abs(incoming['width'] - outgoing['width']) <= 1
+
+
+@pytest.mark.browser
+def test_sidebar_toggle_is_fully_visible_and_operable(console_page, live_console: str) -> None:
+    page, _context, _errors = console_page
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.goto(f"{live_console}/app/dashboard", wait_until="load")
+    toggle = page.locator('[data-sidebar-toggle]')
+    for _ in range(2):
+        geometry = toggle.evaluate("""el => {
+            const button = el.getBoundingClientRect();
+            const sidebar = el.closest('.sidebar').getBoundingClientRect();
+            return {left: button.left, right: button.right, sidebarLeft: sidebar.left, sidebarRight: sidebar.right};
+        }""")
+        assert geometry['left'] >= geometry['sidebarLeft'] - 1, geometry
+        assert geometry['right'] <= geometry['sidebarRight'] + 1, geometry
+        toggle.click()
+        page.wait_for_timeout(250)
 
 
 @pytest.mark.browser

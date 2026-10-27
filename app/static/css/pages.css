@@ -256,6 +256,12 @@
   border-radius: var(--radius-lg);
   background: var(--surface-1);
 }
+.firewall-policy > .field { flex: 1 1 180px; }
+@media (max-width: 560px) {
+  .firewall-policy { align-items: stretch; }
+  .firewall-policy > .field { flex: 1 1 100%; }
+  .firewall-policy > .btn { width: 100%; }
+}
 .firewall-rule-sources { display: flex; gap: var(--space-1); flex-wrap: wrap; }
 .firewall-source-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .firewall-source-row { display: flex; align-items: flex-end; gap: var(--space-2); }
