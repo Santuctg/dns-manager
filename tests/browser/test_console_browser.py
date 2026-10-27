@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.4 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.5 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -374,6 +374,20 @@ def test_implicit_text_inputs_match_other_form_controls(console_page, live_conso
     finally:
         login_context.close()
     assert styles[0] == styles[1]
+
+
+@pytest.mark.browser
+def test_dynamic_action_icons_reference_existing_sprite_symbols(console_page, live_console: str) -> None:
+    page, _context, _errors = console_page
+    page.goto(f"{live_console}/app/ssl", wait_until="load")
+    page.wait_for_selector('summary[aria-label] use[href*="icons.svg"]', state="attached")
+    result = page.evaluate("""async () => {
+        const sprite = new DOMParser().parseFromString(await (await fetch('/static/icons.svg')).text(), 'image/svg+xml');
+        const uses = [...document.querySelectorAll('summary[aria-label] use[href*="icons.svg"]')];
+        return uses.map(use => ({href: use.getAttribute('href'),
+            found: !!sprite.getElementById(use.getAttribute('href').split('#')[1])}));
+    }""")
+    assert result and all(item['found'] for item in result), result
 
 
 @pytest.mark.browser

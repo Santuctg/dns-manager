@@ -34,7 +34,7 @@ export function escapeHtml(value) {
 }
 
 export function icon(name, className = 'icon') {
-  return `<svg class="${className}" aria-hidden="true" focusable="false"><use href="/static/icons.svg#${name}"></use></svg>`;
+  return `<svg class="${className}" aria-hidden="true" focusable="false"><use href="/static/icons.svg#icon-${name}"></use></svg>`;
 }
 
 export function cookie(name) {
