@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.2 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.3 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -376,8 +376,10 @@ def test_side_panel_actions_stay_reachable_on_short_screens(console_page, live_c
                         const footVisible = !foot || foot.getBoundingClientRect().bottom <= vh + 1;
                         const needsScroll = body && body.scrollHeight > body.clientHeight + 1;
                         const bodyScrolls = !needsScroll || /(auto|scroll)/.test(getComputedStyle(body).overflowY);
-                        if (!footVisible || !bodyScrolls) {
-                            out.push(`${dialog.className} footer=${footVisible} bodyScrolls=${bodyScrolls}`);
+                        const rect = dialog.getBoundingClientRect();
+                        const fillsHeight = Math.abs(rect.top) <= 1 && rect.bottom >= vh - 1;
+                        if (!footVisible || !bodyScrolls || !fillsHeight) {
+                            out.push(`${dialog.className} footer=${footVisible} bodyScrolls=${bodyScrolls} fills=${fillsHeight}`);
                         }
                         dialog.close();
                     });
@@ -386,6 +388,39 @@ def test_side_panel_actions_stay_reachable_on_short_screens(console_page, live_c
             )
             problems.extend(f"{name} {width}x{height}: {issue}" for issue in issues)
     assert not problems, "\n".join(problems)
+
+
+@pytest.mark.browser
+def test_mobile_sheet_scrolls_instead_of_clipping(console_page, live_console: str) -> None:
+    """The phone 'More pages' sheet must reach the bottom and scroll its content."""
+    page, _context, _errors = console_page
+    page.set_viewport_size({"width": 390, "height": 500})
+    page.goto(f"{live_console}/app/dashboard", wait_until="load")
+    page.wait_for_timeout(400)
+    state = page.evaluate(
+        """() => {
+            const sheet = document.querySelector('dialog.mobile-sheet');
+            if (!sheet) return {missing: true};
+            sheet.showModal();
+            const rect = sheet.getBoundingClientRect();
+            const inner = sheet.querySelector('.mobile-sheet-inner');
+            const overflow = inner.scrollHeight - inner.clientHeight;
+            const scrollable = /(auto|scroll)/.test(getComputedStyle(inner).overflowY);
+            const out = {
+                missing: false,
+                top: rect.top,
+                bottomGap: window.innerHeight - rect.bottom,
+                overflow,
+                scrollable,
+            };
+            sheet.close();
+            return out;
+        }"""
+    )
+    assert not state["missing"], "mobile sheet not rendered"
+    assert state["bottomGap"] <= 1, f"sheet does not reach the bottom ({state})"
+    assert state["top"] >= 0, f"sheet starts above the viewport ({state})"
+    assert state["overflow"] <= 1 or state["scrollable"], f"sheet content is clipped ({state})"
 
 
 @pytest.mark.browser

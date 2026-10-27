@@ -513,6 +513,9 @@ pre code { padding: 0; background: transparent; }
   width: min(560px, 100vw);
   max-width: 100%;
   height: 100%;
+  /* The UA stylesheet caps dialogs at calc(100% - 34px); without this the
+     drawer ends 34px above the bottom edge and the page shows through. */
+  max-height: 100%;
   padding: 0;
   margin: 0;
   border: 0;
@@ -522,6 +525,7 @@ pre code { padding: 0; background: transparent; }
   box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .side-panel::backdrop { background: rgb(0 0 0 / 55%); }
 /* Panels whose head, body and foot live inside a <form> must forward the
