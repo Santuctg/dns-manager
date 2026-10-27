@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.3 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.4 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -353,6 +353,27 @@ def test_login_page_smoke(console_page, live_console: str) -> None:
     finally:
         login_context.close()
     assert not problems, "\n".join(problems)
+
+
+@pytest.mark.browser
+def test_implicit_text_inputs_match_other_form_controls(console_page, live_console: str) -> None:
+    _page, context, _errors = console_page
+    browser = context.browser
+    assert browser is not None
+    login_context = browser.new_context(base_url=live_console)
+    page = login_context.new_page()
+    try:
+        page.goto(f"{live_console}/login", wait_until="load")
+        styles = page.evaluate("""() => {
+            const properties = ['width', 'minHeight', 'padding', 'borderRadius', 'backgroundColor', 'fontSize'];
+            return ['#login-username', '#login-password'].map(selector => {
+                const style = getComputedStyle(document.querySelector(selector));
+                return Object.fromEntries(properties.map(property => [property, style[property]]));
+            });
+        }""")
+    finally:
+        login_context.close()
+    assert styles[0] == styles[1]
 
 
 @pytest.mark.browser

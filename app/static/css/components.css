@@ -364,6 +364,7 @@ label.field {
   font-size: var(--text-xs);
   font-weight: 400;
 }
+input:not([type]),
 input[type="text"],
 input[type="password"],
 input[type="number"],

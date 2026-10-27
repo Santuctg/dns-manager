@@ -29,4 +29,4 @@ def test_every_page_uses_the_shared_poller():
 
 
 def test_version_is_the_console_release():
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "0.7.3"
+    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == "0.7.4"
