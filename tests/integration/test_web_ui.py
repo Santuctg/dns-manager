@@ -222,7 +222,10 @@ def test_page_specific_hooks_exist():
         assert "data-summary-certificates" in dashboard
         assert "data-attention-list" in dashboard
         assert "data-recent-events" in dashboard
-        assert "data-sparkline" in dashboard
+        assert 'data-chart="cpu-memory"' in dashboard
+        assert 'data-chart="network"' in dashboard
+        assert 'data-chart-legend="cpu"' in dashboard
+        assert 'data-chart-legend="output"' in dashboard
 
         mappings = client.get("/app/mappings").text
         for hook in (

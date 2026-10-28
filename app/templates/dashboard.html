@@ -38,36 +38,33 @@
   <div class="card-head">
     <div>
       <p class="eyebrow">{{ t('system.monitoring') }}</p>
-      <h2>{{ t('dashboard.sparklines') }}</h2>
+      <h2>{{ t('dashboard.charts_title') }}</h2>
       <p class="muted small">{{ t('system.monitoring_help') }}</p>
     </div>
     <span class="badge" data-dashboard-sample>{{ t('common.live') }}</span>
   </div>
-  <div class="sparklines">
-    <div class="spark-card sparkline-wrap">
-      <div class="sparkline-head">
-        <span class="muted small">{{ t('dashboard.cpu') }}</span>
-        <strong data-spark-value="cpu">—</strong>
+  <div class="charts">
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <span class="muted small">{{ t('dashboard.chart_title_cpu_mem') }}</span>
+        <span class="muted tiny">{{ t('dashboard.window_hour') }}</span>
       </div>
-      <svg class="sparkline" data-sparkline="cpu" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.cpu') }}"></svg>
-      <span class="muted tiny" data-spark-detail="cpu"><span class="skeleton skeleton-text" aria-hidden="true"></span></span>
+      <svg class="chart" data-chart="cpu-memory" viewBox="0 0 480 180" preserveAspectRatio="none" role="img" aria-label="{{ t('dashboard.chart_title_cpu_mem') }}"></svg>
+      <div class="chart-legend">
+        <span class="chart-legend-item chart-legend-accent" data-chart-legend="cpu"></span>
+        <span class="chart-legend-item chart-legend-info" data-chart-legend="memory"></span>
+      </div>
     </div>
-    <div class="spark-card sparkline-wrap">
-      <div class="sparkline-head">
-        <span class="muted small">{{ t('dashboard.ram') }}</span>
-        <strong data-spark-value="memory">—</strong>
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <span class="muted small">{{ t('dashboard.chart_title_network') }}</span>
+        <span class="muted tiny">{{ t('dashboard.window_hour') }}</span>
       </div>
-      <svg class="sparkline" data-sparkline="memory" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.ram') }}"></svg>
-      <span class="muted tiny" data-spark-detail="memory"><span class="skeleton skeleton-text" aria-hidden="true"></span></span>
-    </div>
-    <div class="spark-card sparkline-wrap">
-      <div class="sparkline-head">
-        <span class="muted small">{{ t('dashboard.network') }}</span>
-        <strong data-spark-value="network">—</strong>
+      <svg class="chart" data-chart="network" viewBox="0 0 480 180" preserveAspectRatio="none" role="img" aria-label="{{ t('dashboard.chart_title_network') }}"></svg>
+      <div class="chart-legend">
+        <span class="chart-legend-item chart-legend-accent" data-chart-legend="input"></span>
+        <span class="chart-legend-item chart-legend-info" data-chart-legend="output"></span>
       </div>
-      <svg class="sparkline" data-sparkline="rx" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.network') }} RX"></svg>
-      <svg class="sparkline" data-sparkline="tx" viewBox="0 0 240 56" role="img" aria-label="{{ t('dashboard.network') }} TX"></svg>
-      <span class="muted tiny" data-spark-detail="network"><span class="skeleton skeleton-text" aria-hidden="true"></span></span>
     </div>
   </div>
 </section>

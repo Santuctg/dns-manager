@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.7 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.9 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -558,3 +558,64 @@ def test_dashboard_metrics_failures_back_off(console_page, live_console: str) ->
     finally:
         page.close()
     assert len(calls) <= 3, f"metrics endpoint was polled {len(calls)} times in 5s"
+
+
+@pytest.mark.browser
+def test_dashboard_renders_combined_monitoring_charts(console_page, live_console: str) -> None:
+    """The dashboard shows two combined charts (CPU & Memory, Network) with axes, lines and a live legend."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    counters = {"rx": 1_000_000, "tx": 2_000_000}
+
+    def _metrics(route):
+        counters["rx"] += 250_000
+        counters["tx"] += 500_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":14.3,"load_1":0.5},'
+                '"memory":{"usage_percent":19.7,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics", _metrics)
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        # Wait past the ~5s downsample boundary so each chart records >=2 points and draws a line.
+        page.wait_for_function(
+            """() => {
+                const cpu = document.querySelector('[data-chart="cpu-memory"]');
+                const net = document.querySelector('[data-chart="network"]');
+                return cpu && net
+                    && cpu.querySelectorAll('polyline.chart-line').length >= 1
+                    && net.querySelectorAll('polyline.chart-line').length >= 1;
+            }""",
+            timeout=9000,
+        )
+        state = page.evaluate(
+            """() => ({
+                cpuGrid: document.querySelectorAll('[data-chart="cpu-memory"] line.chart-grid').length,
+                netGrid: document.querySelectorAll('[data-chart="network"] line.chart-grid').length,
+                cpuLines: document.querySelectorAll('[data-chart="cpu-memory"] polyline.chart-line').length,
+                netLines: document.querySelectorAll('[data-chart="network"] polyline.chart-line').length,
+                cpuLegend: document.querySelector('[data-chart-legend="cpu"]').textContent.trim(),
+                memLegend: document.querySelector('[data-chart-legend="memory"]').textContent.trim(),
+                inLegend: document.querySelector('[data-chart-legend="input"]').textContent.trim(),
+                outLegend: document.querySelector('[data-chart-legend="output"]').textContent.trim(),
+                cpuAxisLabels: document.querySelectorAll('[data-chart="cpu-memory"] text.chart-axis').length,
+            })"""
+        )
+    finally:
+        page.close()
+    assert state["cpuGrid"] >= 2, "CPU & Memory chart is missing gridlines"
+    assert state["netGrid"] >= 2, "Network chart is missing gridlines"
+    assert state["cpuLines"] >= 2, "CPU & Memory chart should plot both CPU and Memory lines"
+    assert state["netLines"] >= 2, "Network chart should plot both Input and Output lines"
+    assert state["cpuAxisLabels"] >= 2, "CPU & Memory chart is missing y-axis labels"
+    assert "14" in state["cpuLegend"], f"CPU legend not showing value: {state['cpuLegend']!r}"
+    assert "19" in state["memLegend"], f"Memory legend not showing value: {state['memLegend']!r}"
+    assert state["inLegend"] and state["inLegend"] != "—", "Input legend not populated"
+    assert state["outLegend"] and state["outLegend"] != "—", "Output legend not populated"

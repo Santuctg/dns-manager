@@ -597,45 +597,101 @@ export function poll(fn, intervalMs = 1000, { maxBackoff = 30000 } = {}) {
   return { stop, run };
 }
 
-// ------------------------------------------------------------------ sparkline
-export function createSparkline(svg, { capacity = 120, toneName = 'accent' } = {}) {
-  const values = [];
+// ------------------------------------------------------------------ chart
+export function createChart(svg, {
+  series = [],
+  capacity = 720,
+  minIntervalMs = 5000,
+  yMin = 0,
+  yMax = null,
+  formatValue = (value) => String(value),
+  xLabels = null,
+} = {}) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const history = new Map(series.map((s) => [s.key, []]));
+  const latest = new Map();
+  const lastRecord = new Map();
+
+  const el = (name, attrs) => {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    return node;
+  };
+  const legendFor = (key) => document.querySelector(`[data-chart-legend="${key}"]`);
+
   const render = () => {
     if (!svg) return;
-    const width = svg.viewBox.baseVal.width || 240;
-    const height = svg.viewBox.baseVal.height || 56;
-    svg.replaceChildren();
-    if (values.length < 2) return;
-    const max = Math.max(...values, 1);
-    const min = Math.min(...values, 0);
+    const width = svg.viewBox.baseVal.width || 480;
+    const height = svg.viewBox.baseVal.height || 180;
+    const padLeft = 44, padRight = 10, padTop = 10, padBottom = 22;
+    const plotW = Math.max(width - padLeft - padRight, 1);
+    const plotH = Math.max(height - padTop - padBottom, 1);
+    const baseY = padTop + plotH;
+
+    let max = yMax;
+    if (max == null) {
+      const all = series.flatMap((s) => history.get(s.key));
+      max = Math.max(...all, 1);
+    }
+    const min = yMin;
     const span = max - min || 1;
-    const step = width / Math.max(values.length - 1, 1);
-    const points = values.map((value, index) => {
-      const x = index * step;
-      const y = height - ((value - min) / span) * (height - 6) - 3;
-      return [x, y];
-    });
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    line.setAttribute('points', points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '));
-    line.setAttribute('class', `spark-${toneName}`);
-    const fill = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    fill.setAttribute('class', 'spark-fill');
-    fill.setAttribute('points', `${points[0][0]},${height} ${points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')} ${points[points.length - 1][0]},${height}`);
-    svg.append(fill, line);
+    const yFor = (value) => baseY - ((value - min) / span) * plotH;
+
+    svg.replaceChildren();
+
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const value = min + (span * i) / ticks;
+      const y = yFor(value);
+      svg.append(el('line', { class: 'chart-grid', x1: padLeft, y1: y, x2: padLeft + plotW, y2: y }));
+      const label = el('text', { class: 'chart-axis chart-axis-y', x: padLeft - 6, y: y + 3, 'text-anchor': 'end' });
+      label.textContent = formatValue(value);
+      svg.append(label);
+    }
+
+    if (xLabels && xLabels.length === 3) {
+      [0, 0.5, 1].forEach((frac, index) => {
+        const anchor = frac === 0 ? 'start' : frac === 1 ? 'end' : 'middle';
+        const label = el('text', { class: 'chart-axis chart-axis-x', x: padLeft + frac * plotW, y: height - 6, 'text-anchor': anchor });
+        label.textContent = xLabels[index];
+        svg.append(label);
+      });
+    }
+
+    for (const s of series) {
+      const points = history.get(s.key);
+      if (points.length < 2) continue;
+      const step = plotW / (capacity - 1);
+      const coords = points.map((value, index) => [padLeft + index * step, yFor(value)]);
+      const linePts = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+      const fillPts = `${coords[0][0].toFixed(1)},${baseY} ${linePts} ${coords[coords.length - 1][0].toFixed(1)},${baseY}`;
+      svg.append(el('polygon', { class: `chart-fill chart-fill-${s.toneName}`, points: fillPts }));
+      svg.append(el('polyline', { class: `chart-line chart-line-${s.toneName}`, points: linePts }));
+    }
   };
+
   return {
-    push(value) {
+    push(key, value, timestamp = Date.now()) {
       const number = Number(value);
       if (!Number.isFinite(number)) return;
-      values.push(number);
-      while (values.length > capacity) values.shift();
-      render();
+      latest.set(key, number);
+      const def = series.find((s) => s.key === key);
+      const legend = legendFor(key);
+      if (legend && def) legend.textContent = `${def.label} ${formatValue(number)}`;
+      const last = lastRecord.get(key);
+      if (last == null || timestamp - last >= minIntervalMs) {
+        const arr = history.get(key);
+        arr.push(number);
+        while (arr.length > capacity) arr.shift();
+        lastRecord.set(key, timestamp);
+        render();
+      }
     },
-    latest() {
-      return values.length ? values[values.length - 1] : null;
-    },
+    latest(key) { return latest.has(key) ? latest.get(key) : null; },
     reset() {
-      values.length = 0;
+      for (const arr of history.values()) arr.length = 0;
+      latest.clear();
+      lastRecord.clear();
       render();
     },
   };

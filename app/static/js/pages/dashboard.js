@@ -1,6 +1,6 @@
 import {
   $, $$, api, escapeHtml, icon, t, toast, fmtBytes, fmtDate,
-  poll, createSparkline, healthChip, badge,
+  poll, createChart, healthChip, badge,
 } from '../core.js';
 
 const state = {
@@ -15,7 +15,7 @@ const state = {
   net: null,
 };
 
-const sparks = {};
+const charts = {};
 
 // Each card renders as soon as its own request finishes instead of waiting for
 // the slowest endpoint (backend probes can take seconds on a real host).
@@ -29,11 +29,6 @@ const loaded = {
 
 function setText(name, value) {
   const node = $(`[data-${name}]`);
-  if (node) node.textContent = value;
-}
-
-function setSpark(kind, key, value) {
-  const node = $(`[data-spark-${kind}="${key}"]`);
   if (node) node.textContent = value;
 }
 
@@ -174,15 +169,9 @@ function renderMetrics() {
   if (!metrics) return;
   const cpu = metrics.cpu || {};
   const memory = metrics.memory || {};
-  setSpark('value', 'cpu', Number.isFinite(Number(cpu.usage_percent)) ? `${Number(cpu.usage_percent).toFixed(1)}%` : '—');
-  setSpark('detail', 'cpu', Number.isFinite(Number(cpu.load_1)) ? `load ${cpu.load_1}` : t('common.not_available'));
-  setSpark('value', 'memory', Number.isFinite(Number(memory.usage_percent)) ? `${Number(memory.usage_percent).toFixed(1)}%` : '—');
-  setSpark('detail', 'memory', memory.total_bytes
-    ? `${fmtBytes(memory.used_bytes)} / ${fmtBytes(memory.total_bytes)}`
-    : t('common.not_available'));
 
-  sparks.cpu?.push(cpu.usage_percent);
-  sparks.memory?.push(memory.usage_percent);
+  charts.cpuMemory?.push('cpu', cpu.usage_percent);
+  charts.cpuMemory?.push('memory', memory.usage_percent);
 
   const interfaces = metrics.network?.interfaces || [];
   const rx = interfaces.reduce((sum, row) => sum + Number(row.rx_bytes || 0), 0);
@@ -192,10 +181,8 @@ function renderMetrics() {
     const seconds = Math.max((now - state.net.time) / 1000, 0.001);
     const rxRate = (rx - state.net.rx) / seconds;
     const txRate = (tx - state.net.tx) / seconds;
-    sparks.rx?.push(rxRate);
-    sparks.tx?.push(txRate);
-    setSpark('value', 'network', `${fmtBytes(rxRate)}/s`);
-    setSpark('detail', 'network', `RX ${fmtBytes(rxRate)}/s · TX ${fmtBytes(txRate)}/s`);
+    charts.network?.push('input', rxRate);
+    charts.network?.push('output', txRate);
   }
   state.net = { rx, tx, time: now };
   const sample = $('[data-dashboard-sample]');
@@ -212,10 +199,6 @@ async function refreshMetrics() {
   } catch (error) {
     const sample = $('[data-dashboard-sample]');
     if (sample) sample.textContent = t('status.unavailable');
-    for (const key of ['cpu', 'memory', 'network']) {
-      setSpark('value', key, '—');
-      setSpark('detail', key, t('common.not_available'));
-    }
     // Let poll() see the failure so it backs off instead of hammering a
     // metrics endpoint that is permanently unavailable (e.g. no /proc).
     throw error;
@@ -248,10 +231,27 @@ async function loadDashboard() {
 }
 
 export async function init() {
-  sparks.cpu = createSparkline($('[data-sparkline="cpu"]'), { toneName: 'accent' });
-  sparks.memory = createSparkline($('[data-sparkline="memory"]'), { toneName: 'info' });
-  sparks.rx = createSparkline($('[data-sparkline="rx"]'), { toneName: 'good' });
-  sparks.tx = createSparkline($('[data-sparkline="tx"]'), { toneName: 'warning' });
+  charts.cpuMemory = createChart($('[data-chart="cpu-memory"]'), {
+    series: [
+      { key: 'cpu', toneName: 'accent', label: t('dashboard.cpu') },
+      { key: 'memory', toneName: 'info', label: t('dashboard.ram') },
+    ],
+    yMax: 100,
+    minIntervalMs: 5000,
+    capacity: 720,
+    formatValue: (value) => `${Number(value).toFixed(1)}%`,
+    xLabels: ['-60m', '-30m', t('dashboard.now')],
+  });
+  charts.network = createChart($('[data-chart="network"]'), {
+    series: [
+      { key: 'input', toneName: 'accent', label: t('dashboard.input') },
+      { key: 'output', toneName: 'info', label: t('dashboard.output') },
+    ],
+    minIntervalMs: 5000,
+    capacity: 720,
+    formatValue: (value) => `${fmtBytes(value)}/s`,
+    xLabels: ['-60m', '-30m', t('dashboard.now')],
+  });
 
   // Metrics are independent of the summary endpoints, so they start first and
   // keep their own retry/backoff loop.

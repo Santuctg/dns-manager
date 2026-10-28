@@ -73,21 +73,8 @@
 .event-item .event-main strong { font-family: var(--font-mono); font-size: var(--text-xs); }
 .event-item .event-main div { color: var(--text-muted); font-size: var(--text-xs); }
 
-.sparklines {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-.spark-card {
-  padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-}
-
 @media (max-width: 1024px) {
   .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sparklines { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .summary-strip { grid-template-columns: minmax(0, 1fr); }

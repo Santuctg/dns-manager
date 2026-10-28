@@ -836,34 +836,28 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 58%); }
 }
 .menu-panel .btn-danger { color: var(--critical); }
 
-.sparkline {
-  width: 100%;
-  height: 56px;
-  overflow: visible;
+.charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
 }
-.sparkline polyline {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-.sparkline .spark-fill { fill: var(--accent-soft); stroke: none; opacity: 0.7; }
-.sparkline .spark-grid { stroke: var(--border); stroke-width: 1; }
-.sparkline-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.sparkline-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.sparkline-head strong { font-family: var(--font-mono); font-size: var(--text-sm); }
+@media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+.chart-card { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.chart-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.chart { width: 100%; height: 180px; overflow: visible; }
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-axis { fill: var(--text-muted); font-size: 10px; font-family: var(--font-mono); }
+.chart-line { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.chart-line-accent { stroke: var(--accent); }
+.chart-line-info { stroke: var(--info); }
+.chart-fill { stroke: none; opacity: 0.55; }
+.chart-fill-accent { fill: var(--accent-soft); }
+.chart-fill-info { fill: var(--info-tint); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.chart-legend-item { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: var(--text-sm); }
+.chart-legend-item::before { content: ''; width: 8px; height: 8px; border-radius: 999px; }
+.chart-legend-accent::before { background: var(--accent); }
+.chart-legend-info::before { background: var(--info); }
 
 .progress {
   width: 100%;
