@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.6 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.7 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -390,6 +390,14 @@ def test_firewall_policy_controls_are_readable_and_responsive(console_page, live
             assert outgoing['y'] >= incoming['y'] + incoming['height']
         else:
             assert abs(incoming['width'] - outgoing['width']) <= 1
+            assert incoming['width'] <= 260 and outgoing['width'] <= 260
+            centers = page.evaluate("""() => ['[data-firewall-enabled]', '#firewall-incoming',
+                '[data-firewall-policy-form] button[type="submit"]'].map(selector => {
+                    const rect = document.querySelector(selector).getBoundingClientRect();
+                    return rect.top + rect.height / 2;
+                })""")
+            assert abs(centers[0] - centers[1]) <= 2
+            assert abs(centers[2] - centers[1]) <= 2
 
 
 @pytest.mark.browser

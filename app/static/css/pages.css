@@ -256,7 +256,8 @@
   border-radius: var(--radius-lg);
   background: var(--surface-1);
 }
-.firewall-policy > .field { flex: 1 1 180px; }
+.firewall-policy > .field { flex: 0 1 240px; }
+.firewall-policy > .check { min-height: var(--control-height); align-items: center; }
 @media (max-width: 560px) {
   .firewall-policy { align-items: stretch; }
   .firewall-policy > .field { flex: 1 1 100%; }
