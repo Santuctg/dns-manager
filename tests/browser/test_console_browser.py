@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.10 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.11 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -721,3 +721,69 @@ def test_dashboard_chart_history_survives_reload(console_page, live_console: str
     assert all(count >= 2 for count in restored), (
         f"chart lines disappeared after reload instead of restoring history: {restored}"
     )
+
+
+@pytest.mark.browser
+def test_dashboard_charts_are_separated_centered_and_undistorted(console_page, live_console: str) -> None:
+    """Each chart sits in its own visible card, bottom legend is centered, and chart
+    text is not horizontally stretched (viewBox must match the rendered size)."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    counters = {"rx": 1_000_000, "tx": 2_000_000}
+
+    def _metrics(route):
+        counters["rx"] += 250_000
+        counters["tx"] += 500_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":14.3,"load_1":0.5},'
+                '"memory":{"usage_percent":19.7,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics", _metrics)
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => document.querySelectorAll('[data-chart="cpu-memory"] polyline.chart-line').length >= 1""",
+            timeout=9000,
+        )
+        state = page.evaluate(
+            """() => ({
+                svgs: [...document.querySelectorAll('[data-chart]')].map((svg) => {
+                    const rect = svg.getBoundingClientRect();
+                    const vb = svg.viewBox.baseVal;
+                    return { w: rect.width, vbW: vb.width, h: rect.height, vbH: vb.height,
+                             par: svg.getAttribute('preserveAspectRatio') };
+                }),
+                legendJustify: getComputedStyle(document.querySelector('.chart-legend')).justifyContent,
+                cardBorders: [...document.querySelectorAll('.chart-card')]
+                    .map((n) => getComputedStyle(n).borderTopWidth),
+                cardBackgrounds: [...document.querySelectorAll('.chart-card')]
+                    .map((n) => getComputedStyle(n).backgroundColor),
+            })"""
+        )
+    finally:
+        page.close()
+    for i, svg in enumerate(state["svgs"]):
+        assert svg["par"] != "none", (
+            f"chart {i}: preserveAspectRatio='none' stretches the text horizontally"
+        )
+        assert abs(svg["vbW"] - svg["w"]) <= 2, (
+            f"chart {i}: viewBox width {svg['vbW']} != rendered width {svg['w']} — axis text will look distorted"
+        )
+        assert abs(svg["vbH"] - svg["h"]) <= 2, (
+            f"chart {i}: viewBox height {svg['vbH']} != rendered height {svg['h']}"
+        )
+    assert state["legendJustify"] == "center", (
+        f"chart legend row should be centered, got justify-content: {state['legendJustify']}"
+    )
+    for i, (border, background) in enumerate(zip(state["cardBorders"], state["cardBackgrounds"])):
+        assert border not in ("", "0px"), f"chart card {i} has no border — the two charts don't read as separate cards"
+        assert background not in ("", "rgba(0, 0, 0, 0)", "transparent"), (
+            f"chart card {i} has no background — the two charts don't read as separate cards"
+        )

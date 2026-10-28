@@ -842,7 +842,16 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 58%); }
   gap: var(--space-4);
 }
 @media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
-.chart-card { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
 .chart-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .chart { width: 100%; height: 180px; overflow: visible; }
 .chart-grid { stroke: var(--border); stroke-width: 1; }
@@ -853,7 +862,7 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 58%); }
 .chart-fill { stroke: none; opacity: 0.55; }
 .chart-fill-accent { fill: var(--accent-soft); }
 .chart-fill-info { fill: var(--info-tint); }
-.chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); }
 .chart-legend-item { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: var(--text-sm); }
 .chart-legend-item::before { content: ''; width: 8px; height: 8px; border-radius: 999px; }
 .chart-legend-accent::before { background: var(--accent); }

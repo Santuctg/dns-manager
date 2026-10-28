@@ -679,10 +679,15 @@ export function createChart(svg, {
 
   const render = () => {
     if (!svg) return;
-    const width = svg.viewBox.baseVal.width || 480;
-    const height = svg.viewBox.baseVal.height || 180;
-    const padLeft = 44, padRight = 10, padTop = 10, padBottom = 22;
-    const plotW = Math.max(width - padLeft - padRight, 1);
+    // Measure the real rendered size and match the viewBox to it 1:1 so the
+    // axis/legend text is never scaled (or stretched) out of shape.
+    const rect = svg.getBoundingClientRect();
+    const width = Math.round(rect.width) || svg.viewBox.baseVal.width || 480;
+    const height = Math.round(rect.height) || svg.viewBox.baseVal.height || 180;
+    if (width > 0 && (svg.viewBox.baseVal.width !== width || svg.viewBox.baseVal.height !== height)) {
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    }
+    const padLeftBase = 44, padRight = 10, padTop = 10, padBottom = 22;
     const plotH = Math.max(height - padTop - padBottom, 1);
     const baseY = padTop + plotH;
 
@@ -695,22 +700,29 @@ export function createChart(svg, {
     const span = max - min || 1;
     const yFor = (value) => baseY - ((value - min) / span) * plotH;
 
+    const ticks = 4;
+    const tickValues = Array.from({ length: ticks + 1 }, (_, i) => min + (span * i) / ticks);
+    const tickLabels = tickValues.map(formatValue);
+    // Axis text is monospace ~6px/char at 10px size; widen the left gutter so
+    // long labels (e.g. "4.41 KB/s") stay fully inside the chart.
+    const padLeft = Math.max(padLeftBase, Math.max(...tickLabels.map((s) => s.length)) * 6 + 14);
+    const plotW2 = Math.max(width - padLeft - padRight, 1);
+    const xFor = (index) => padLeft + index * (plotW2 / (capacity - 1));
+
     svg.replaceChildren();
 
-    const ticks = 4;
-    for (let i = 0; i <= ticks; i++) {
-      const value = min + (span * i) / ticks;
+    tickValues.forEach((value, i) => {
       const y = yFor(value);
-      svg.append(el('line', { class: 'chart-grid', x1: padLeft, y1: y, x2: padLeft + plotW, y2: y }));
+      svg.append(el('line', { class: 'chart-grid', x1: padLeft, y1: y, x2: padLeft + plotW2, y2: y }));
       const label = el('text', { class: 'chart-axis chart-axis-y', x: padLeft - 6, y: y + 3, 'text-anchor': 'end' });
-      label.textContent = formatValue(value);
+      label.textContent = tickLabels[i];
       svg.append(label);
-    }
+    });
 
     if (xLabels && xLabels.length === 3) {
       [0, 0.5, 1].forEach((frac, index) => {
         const anchor = frac === 0 ? 'start' : frac === 1 ? 'end' : 'middle';
-        const label = el('text', { class: 'chart-axis chart-axis-x', x: padLeft + frac * plotW, y: height - 6, 'text-anchor': anchor });
+        const label = el('text', { class: 'chart-axis chart-axis-x', x: padLeft + frac * plotW2, y: height - 6, 'text-anchor': anchor });
         label.textContent = xLabels[index];
         svg.append(label);
       });
@@ -719,14 +731,20 @@ export function createChart(svg, {
     for (const s of series) {
       const points = history.get(s.key);
       if (points.length < 2) continue;
-      const step = plotW / (capacity - 1);
-      const coords = points.map((value, index) => [padLeft + index * step, yFor(value)]);
+      const coords = points.map((value, index) => [xFor(index), yFor(value)]);
       const linePts = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
       const fillPts = `${coords[0][0].toFixed(1)},${baseY} ${linePts} ${coords[coords.length - 1][0].toFixed(1)},${baseY}`;
       svg.append(el('polygon', { class: `chart-fill chart-fill-${s.toneName}`, points: fillPts }));
       svg.append(el('polyline', { class: `chart-line chart-line-${s.toneName}`, points: linePts }));
     }
   };
+
+  // Keep the 1:1 viewBox in sync when the layout changes (resize, sidebar
+  // toggle, orientation) so text never stretches.
+  if (typeof ResizeObserver !== 'undefined' && svg) {
+    const observer = new ResizeObserver(() => render());
+    observer.observe(svg);
+  }
 
   loadHistory();
 
