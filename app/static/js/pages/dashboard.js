@@ -239,6 +239,7 @@ export async function init() {
     yMax: 100,
     minIntervalMs: 5000,
     capacity: 720,
+    storageKey: 'dns-manager:chart:cpu-memory',
     formatValue: (value) => `${Number(value).toFixed(1)}%`,
     xLabels: ['-60m', '-30m', t('dashboard.now')],
   });
@@ -249,6 +250,7 @@ export async function init() {
     ],
     minIntervalMs: 5000,
     capacity: 720,
+    storageKey: 'dns-manager:chart:network',
     formatValue: (value) => `${fmtBytes(value)}/s`,
     xLabels: ['-60m', '-30m', t('dashboard.now')],
   });

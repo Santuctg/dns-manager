@@ -76,8 +76,13 @@ def test_global_modal_does_not_persist_prompt_secrets_in_browser_storage():
     assert 'localStorage' not in ssl
     assert 'sessionStorage' not in ssl
     assert 'sessionStorage' not in core
-    # The only storage use is the sidebar preference, never a prompt value.
-    assert core.count('localStorage.setItem') == 1
+    # The only storage uses are the sidebar preference and chart history —
+    # never a prompt value. Chart history is namespaced in dashboard.js and
+    # stores only numeric metric samples.
+    assert core.count('localStorage.setItem') == 2
     assert 'dns_manager_sidebar' in core
+    assert 'storageKey' in core
+    dashboard = (root / 'app/static/js/pages/dashboard.js').read_text()
+    assert 'dns-manager:chart:' in dashboard
     assert "input.value = ''" in core
     assert 'textContent' in core

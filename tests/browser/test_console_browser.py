@@ -1,4 +1,4 @@
-"""Browser smoke test for the 0.7.9 console (requires Playwright + Chromium).
+"""Browser smoke test for the 0.7.10 console (requires Playwright + Chromium).
 
 Run with:
 
@@ -619,3 +619,105 @@ def test_dashboard_renders_combined_monitoring_charts(console_page, live_console
     assert "19" in state["memLegend"], f"Memory legend not showing value: {state['memLegend']!r}"
     assert state["inLegend"] and state["inLegend"] != "—", "Input legend not populated"
     assert state["outLegend"] and state["outLegend"] != "—", "Output legend not populated"
+
+
+@pytest.mark.browser
+def test_dashboard_network_values_are_rounded_to_two_decimals(console_page, live_console: str) -> None:
+    """Network legend and axis values always render with exactly two decimals (e.g. '100.21 KB/s')."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    counters = {"rx": 1_000, "tx": 2_000}
+
+    def _metrics(route):
+        # Small deltas -> raw rates with long fractional tails (e.g. 499.5004... B/s).
+        counters["rx"] += 300
+        counters["tx"] += 600
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":14.3,"load_1":0.5},'
+                '"memory":{"usage_percent":19.7,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics", _metrics)
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => document.querySelector('[data-chart-legend="input"]').textContent.trim().length > 5""",
+            timeout=9000,
+        )
+        state = page.evaluate(
+            """() => ({
+                legends: ['input', 'output'].map((k) =>
+                    document.querySelector(`[data-chart-legend="${k}"]`).textContent.trim()),
+                axis: [...document.querySelectorAll('[data-chart="network"] text.chart-axis-y')]
+                    .map((n) => n.textContent.trim()),
+            })"""
+        )
+    finally:
+        page.close()
+    value_pattern = re.compile(r"^\d+\.\d{2} (B|KB|MB|GiB)/s$")
+    legend_pattern = re.compile(r"^\S+ \d+\.\d{2} (B|KB|MB|GiB)/s$")
+    for legend in state["legends"]:
+        assert legend_pattern.match(legend), f"network legend is not rounded to 2 decimals: {legend!r}"
+    for label in state["axis"]:
+        assert value_pattern.match(label), f"network axis label is not rounded to 2 decimals: {label!r}"
+
+
+@pytest.mark.browser
+def test_dashboard_chart_history_survives_reload(console_page, live_console: str) -> None:
+    """Chart history is persisted so reloading the dashboard restores recorded points immediately."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    counters = {"rx": 1_000_000, "tx": 2_000_000}
+
+    def _metrics(route):
+        counters["rx"] += 250_000
+        counters["tx"] += 500_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":14.3,"load_1":0.5},'
+                '"memory":{"usage_percent":19.7,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics", _metrics)
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        # Accumulate >=2 recorded points per chart so a line is drawn (2 charts x 2 series).
+        page.wait_for_function(
+            """() => {
+                const lines = [...document.querySelectorAll('[data-chart] polyline.chart-line')];
+                return lines.length >= 4
+                    && lines.every((n) => n.getAttribute('points').split(' ').length >= 2);
+            }""",
+            timeout=9000,
+        )
+        page.reload(wait_until="domcontentloaded")
+        # Within <5s of reload the downsample interval cannot have recorded two
+        # fresh points, so any two-point line must come from restored history.
+        page.wait_for_function(
+            """() => {
+                const lines = [...document.querySelectorAll('[data-chart] polyline.chart-line')];
+                return lines.length >= 4
+                    && lines.every((n) => n.getAttribute('points').split(' ').length >= 2);
+            }""",
+            timeout=3500,
+        )
+        restored = page.evaluate(
+            """() => [...document.querySelectorAll('[data-chart] polyline.chart-line')]
+                    .map((n) => n.getAttribute('points').split(' ').length)"""
+        )
+    finally:
+        page.close()
+    assert all(count >= 2 for count in restored), (
+        f"chart lines disappeared after reload instead of restoring history: {restored}"
+    )

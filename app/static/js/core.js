@@ -111,9 +111,9 @@ async function request(url, options) {
 export function fmtBytes(bytes) {
   const value = Number(bytes);
   if (!Number.isFinite(value)) return '—';
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  if (value < 1024) return `${value.toFixed(2)} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(2)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GiB`;
 }
 
@@ -606,9 +606,11 @@ export function createChart(svg, {
   yMax = null,
   formatValue = (value) => String(value),
   xLabels = null,
+  storageKey = null,
 } = {}) {
   const NS = 'http://www.w3.org/2000/svg';
   const history = new Map(series.map((s) => [s.key, []]));
+  const stamps = new Map(series.map((s) => [s.key, []]));
   const latest = new Map();
   const lastRecord = new Map();
 
@@ -618,6 +620,62 @@ export function createChart(svg, {
     return node;
   };
   const legendFor = (key) => document.querySelector(`[data-chart-legend="${key}"]`);
+  const setLegend = (key, value) => {
+    const def = series.find((s) => s.key === key);
+    const legend = legendFor(key);
+    if (legend && def) legend.textContent = `${def.label} ${formatValue(value)}`;
+  };
+
+  // Chart history survives reloads: points are mirrored to localStorage with
+  // their timestamps, pruned to the visible window (~capacity * minIntervalMs).
+  // Storage failures (private mode, quota) must never break the live chart.
+  const loadHistory = () => {
+    if (!storageKey) return;
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    } catch {
+      return; // corrupted or unreadable storage: start empty
+    }
+    if (!saved || typeof saved !== 'object') return;
+    const cutoff = Date.now() - capacity * minIntervalMs;
+    for (const s of series) {
+      const rows = Array.isArray(saved[s.key]) ? saved[s.key] : [];
+      const hist = history.get(s.key);
+      const times = stamps.get(s.key);
+      for (const row of rows) {
+        const timestamp = Number(row?.[0]);
+        const value = Number(row?.[1]);
+        if (!Number.isFinite(timestamp) || timestamp < cutoff || !Number.isFinite(value)) continue;
+        if (hist.length >= capacity) break;
+        hist.push(value);
+        times.push(timestamp);
+      }
+      if (hist.length) {
+        const lastValue = hist[hist.length - 1];
+        lastRecord.set(s.key, times[times.length - 1]);
+        latest.set(s.key, lastValue);
+        setLegend(s.key, lastValue);
+      }
+    }
+    render();
+  };
+
+  const saveHistory = () => {
+    if (!storageKey) return;
+    try {
+      const data = {};
+      for (const s of series) {
+        const hist = history.get(s.key);
+        const times = stamps.get(s.key);
+        data[s.key] = hist.map((value, index) => [times[index], value]);
+      }
+      localStorage.setItem(storageKey, JSON.stringify(data));
+    } catch {
+      // storage unavailable or full: the live chart still works, it just
+      // won't survive a reload.
+    }
+  };
 
   const render = () => {
     if (!svg) return;
@@ -670,29 +728,42 @@ export function createChart(svg, {
     }
   };
 
+  loadHistory();
+
   return {
     push(key, value, timestamp = Date.now()) {
       const number = Number(value);
       if (!Number.isFinite(number)) return;
       latest.set(key, number);
-      const def = series.find((s) => s.key === key);
-      const legend = legendFor(key);
-      if (legend && def) legend.textContent = `${def.label} ${formatValue(number)}`;
+      setLegend(key, number);
       const last = lastRecord.get(key);
       if (last == null || timestamp - last >= minIntervalMs) {
         const arr = history.get(key);
         arr.push(number);
-        while (arr.length > capacity) arr.shift();
+        stamps.get(key).push(timestamp);
+        while (arr.length > capacity) {
+          arr.shift();
+          stamps.get(key).shift();
+        }
         lastRecord.set(key, timestamp);
         render();
+        saveHistory();
       }
     },
     latest(key) { return latest.has(key) ? latest.get(key) : null; },
     reset() {
       for (const arr of history.values()) arr.length = 0;
+      for (const arr of stamps.values()) arr.length = 0;
       latest.clear();
       lastRecord.clear();
       render();
+      if (storageKey) {
+        try {
+          localStorage.removeItem(storageKey);
+        } catch {
+          // ignore: nothing to clean up if storage is unavailable
+        }
+      }
     },
   };
 }
