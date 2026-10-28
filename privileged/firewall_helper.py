@@ -1,5 +1,5 @@
 from __future__ import annotations
-import fcntl, json, os, re, secrets, shlex, subprocess, tempfile
+import fcntl, json, math, os, re, secrets, shlex, subprocess, tempfile, time
 from contextlib import contextmanager
 from ipaddress import ip_network
 from pathlib import Path
@@ -142,20 +142,37 @@ class FirewallHelperOps:
         port=op['port']; proto=op['protocol']; src=op['source']; comment=op['comment']; action=op['action']
         self._ufw(action,'from',src,'to','any','port',port,'proto',proto,'comment',comment)
     def apply(self,payload):
-        self._validate_payload(payload); token=secrets.token_hex(16); self._snapshot(token,payload)
-        before=self._capture_managed_payload()
-        try:
-            self._delete_managed()
-            self._ufw('default',payload['default_incoming'],'incoming'); self._ufw('default',payload['default_outgoing'],'outgoing')
-            for op in payload.get('operations',[]): self._add_operation(op)
-            if payload.get('enabled'): self._ufw('--force','enable')
-            else: self._ufw('disable')
+        self._validate_payload(payload)
+        with self._locked():
+            if any(_TOKEN_RE.fullmatch(path.stem) for path in self._state().glob('*.json')):
+                raise RuntimeError('firewall apply pending confirmation or rollback')
+            token=secrets.token_hex(16)
+            before=self._capture_managed_payload()
+            self._snapshot(token,payload)
             self._write_rollback_manifest(token,before)
-            self._run([SYSTEMCTL,'--no-block','start',ROLLBACK_UNIT.format(token)])
-            return {'revision':int(payload.get('revision',0)),'pending_confirmation':True,'rollback_token':token,'rollback_seconds':120}
-        except Exception:
-            self._restore_manifest(before)
-            raise
+            try:
+                rollback_started=time.monotonic()
+                scheduled=self._run([SYSTEMCTL,'--no-block','start',ROLLBACK_UNIT.format(token)])
+                if getattr(scheduled,'returncode',1)!=0:
+                    raise RuntimeError('rollback scheduler failed: '+(getattr(scheduled,'stderr','') or 'unable to start service').strip())
+            except Exception:
+                (self._state()/f'{token}.json').unlink(missing_ok=True)
+                (self._state()/f'{token}.rollback.json').unlink(missing_ok=True)
+                raise
+            try:
+                self._delete_managed()
+                self._ufw('default',payload['default_incoming'],'incoming'); self._ufw('default',payload['default_outgoing'],'outgoing')
+                for op in payload.get('operations',[]): self._add_operation(op)
+                if payload.get('enabled'): self._ufw('--force','enable')
+                else: self._ufw('disable')
+                remaining=120-math.ceil(time.monotonic()-rollback_started)
+                if remaining <= 0:
+                    raise RuntimeError('firewall apply exceeded the rollback confirmation window')
+            except Exception:
+                self._restore_manifest(before)
+                (self._state()/f'{token}.json').unlink(missing_ok=True)
+                raise
+            return {'revision':int(payload.get('revision',0)),'pending_confirmation':True,'rollback_token':token,'rollback_seconds':remaining}
     def _capture_managed_payload(self):
         # deterministic helper-owned backup sourced from sidecar manifest if available
         manifest=self._state()/'current-managed.json'

@@ -468,6 +468,27 @@ def test_ssl_certbot_operations_use_long_socket_timeout_while_status_stays_short
     assert timeouts == [330.0, 10.0]
 
 
+def test_firewall_apply_uses_longer_timeout_and_reports_unknown_outcome():
+    import socket
+    import pytest
+    from app.services.privileged_helper import PrivilegedHelperError
+
+    timeouts = []
+    class TimedOutSocket:
+        def sendall(self, data): pass
+        def recv(self, size): raise socket.timeout('timed out')
+        def close(self): pass
+
+    def connector(path, timeout):
+        timeouts.append(timeout)
+        return TimedOutSocket()
+
+    helper = PrivilegedHelper(connector=connector)
+    with pytest.raises(PrivilegedHelperError, match='outcome.*unknown'):
+        helper.firewall_apply({'operations': []})
+    assert 10 < timeouts[0] < 60
+
+
 def test_helper_server_ignores_broken_pipe_when_client_disconnects():
     from privileged.helper_server import serve_once
 

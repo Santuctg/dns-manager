@@ -248,6 +248,9 @@ def test_058_packages_firewall_rollback_without_enabling_ufw():
     assert 'ReadWritePaths=/var/lib/dns-manager-helper/firewall ' in unit
     assert 'ExecStart=/bin/sleep 120' in unit
     assert '/usr/local/libexec/dns-manager-firewall-rollback %i' in unit
+    # Confirm stops the sleeping unit with SIGTERM; without this the oneshot is
+    # marked "failed" and confirmed applies accumulate failed unit instances.
+    assert 'SuccessExitStatus=SIGTERM' in unit
     assert 'ufw enable' not in installer
     assert 'ufw reset' not in installer
 

@@ -29,7 +29,7 @@ def test_both_protocol_is_already_expanded_and_apply_arms_rollback(tmp_path):
     (tmp_path/'current-managed.json').write_text(json.dumps({'enabled':True,'default_incoming':'deny','default_outgoing':'allow','operations':[{'action':'allow','protocol':'tcp','port':'443','source':'0.0.0.0/0','comment':'DNSMGR:1:tcp'}]}))
     payload={'enabled':True,'default_incoming':'deny','default_outgoing':'allow','revision':3,'operations':[{'action':'allow','protocol':'tcp','port':'2222','source':'203.0.113.4/32','comment':'DNSMGR:9:tcp'}]}
     result=ops.apply(payload)
-    assert result['pending_confirmation'] is True and result['rollback_seconds']==120
+    assert result['pending_confirmation'] is True and 0 < result['rollback_seconds'] <= 120
     assert any(c[:3]==[SYSTEMCTL,'--no-block','start'] for c in r.calls)
 
 def test_delete_managed_uses_show_added_when_numbered_status_has_no_rules(tmp_path):
@@ -144,6 +144,51 @@ def _applied(tmp_path):
     (tmp_path/'current-managed.json').write_text(json.dumps(OLD))
     token=ops.apply(NEW)['rollback_token']
     return ufw,ops,token
+
+
+def test_second_apply_is_rejected_while_first_is_unconfirmed(tmp_path):
+    import pytest
+    ufw, ops, token = _applied(tmp_path)
+    rules = list(ufw.rules)
+    with pytest.raises(RuntimeError, match='pending'):
+        ops.apply(NEW)
+    assert ufw.rules == rules
+    assert (tmp_path / f'{token}.json').exists()
+
+
+def test_failed_rollback_scheduler_must_not_change_firewall(tmp_path):
+    import json
+    import pytest
+    class FailedScheduler(StatefulUfw):
+        def __call__(self, argv, **kw):
+            if argv[:3] == [SYSTEMCTL, '--no-block', 'start']:
+                self.calls.append(argv)
+                return R(code=1, err='scheduler failed')
+            return super().__call__(argv, **kw)
+    ufw = FailedScheduler()
+    ops = FirewallHelperOps(runner=ufw, state_dir=tmp_path)
+    (tmp_path / 'current-managed.json').write_text(json.dumps(OLD))
+    with pytest.raises(RuntimeError, match='scheduler'):
+        ops.apply(NEW)
+    assert ufw.rules == []
+
+
+def test_slow_apply_does_not_report_a_fresh_rollback_window(tmp_path, monkeypatch):
+    import json
+    import time
+    clock = [1000.0]
+    monkeypatch.setattr(time, 'monotonic', lambda: clock[0])
+    class SlowUfw(StatefulUfw):
+        def __call__(self, argv, **kw):
+            result = super().__call__(argv, **kw)
+            if argv[:3] == [SYSTEMCTL, '--no-block', 'start']:
+                clock[0] += 70
+            return result
+    ufw = SlowUfw()
+    ops = FirewallHelperOps(runner=ufw, state_dir=tmp_path)
+    (tmp_path / 'current-managed.json').write_text(json.dumps(OLD))
+    result = ops.apply(NEW)
+    assert 0 < result['rollback_seconds'] <= 50
 
 def test_confirm_after_emergency_rollback_is_refused_and_does_not_record_the_new_policy(tmp_path):
     import json

@@ -25,6 +25,7 @@ class PrivilegedHelper:
     ALLOWED = {"validate", "apply", "rollback", "status", "ssl_status", "ssl_issue", "ssl_renew", "ssl_test_renewal", "ssl_apply", "ssl_delete", "ssl_manual_continue", "ssl_manual_status", "acme_dns_status", "acme_zone_check", "acme_txt_set", "acme_txt_delete", "firewall_status", "firewall_preview", "firewall_apply", "firewall_confirm", "firewall_rollback"}
     MAX_RESPONSE_BYTES = 65536
     CERTBOT_TIMEOUT = 330.0
+    FIREWALL_APPLY_TIMEOUT = 45.0
 
     def __init__(
         self,
@@ -101,6 +102,15 @@ class PrivilegedHelper:
 
     def firewall_status(self) -> dict: return self._invoke("firewall_status")
     def firewall_preview(self, policy: dict) -> dict: return self._invoke("firewall_preview", policy=policy)
-    def firewall_apply(self, policy: dict) -> dict: return self._invoke("firewall_apply", policy=policy)
+    def firewall_apply(self, policy: dict) -> dict:
+        try:
+            return self._invoke("firewall_apply", timeout=self.FIREWALL_APPLY_TIMEOUT, policy=policy)
+        except PrivilegedHelperError as exc:
+            if isinstance(exc.__cause__, socket.timeout):
+                raise PrivilegedHelperError(
+                    "Firewall apply outcome is unknown: the helper timed out. "
+                    "Do not retry; check firewall and rollback status before proceeding."
+                ) from exc
+            raise
     def firewall_confirm(self, token: str) -> dict: return self._invoke("firewall_confirm", token=token)
     def firewall_rollback(self, token: str) -> dict: return self._invoke("firewall_rollback", token=token)

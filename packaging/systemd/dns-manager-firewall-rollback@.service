@@ -9,6 +9,9 @@ Group=root
 ExecStart=/bin/sleep 120
 ExecStart=/usr/local/libexec/dns-manager-firewall-rollback %i
 UMask=0077
+# Confirm stops this unit by signalling /bin/sleep. Treat SIGTERM as a clean
+# exit so confirmed applies do not leave a pile of "failed" unit instances.
+SuccessExitStatus=SIGTERM
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
