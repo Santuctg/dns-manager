@@ -11,6 +11,7 @@ from app.dependencies import require_permission
 from app.models.auth import User
 from app.models.mapping import Mapping
 from app.services.health_service import check_backend, get_system_status
+from app.services.metrics_history import read_history
 from app.services.system_metrics import collect_metrics
 
 router = APIRouter(tags=["system"])
@@ -38,6 +39,16 @@ def system_metrics(response: Response, _user: User = Depends(require_permission(
         return collect_metrics()
     except Exception:
         raise HTTPException(status_code=503, detail="System metrics unavailable")
+
+
+@router.get("/api/v1/system/metrics/history")
+def system_metrics_history(response: Response, _user: User = Depends(require_permission("system.view"))):
+    """Read-only ~1 h sample history recorded by the background collector."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return read_history()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Metrics history unavailable")
 
 
 @router.get("/api/v1/system/backends")

@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -6,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import get_engine
+from app.services.metrics_history import start_recorder, stop_recorder
 from app.api.auth import router as auth_router
 from app.api.mappings import router as mappings_router
 from app.api.audit import router as audit_router
@@ -30,7 +32,15 @@ class RevalidatingStaticFiles(StaticFiles):
         return response
 
 
-app = FastAPI(title="DNS Manager", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Best-effort background metrics history; never blocks or fails startup.
+    start_recorder()
+    yield
+    stop_recorder()
+
+
+app = FastAPI(title="DNS Manager", version="0.1.0", lifespan=lifespan)
 app.mount(
     "/static",
     RevalidatingStaticFiles(directory=str(Path(__file__).resolve().parent / "static")),
