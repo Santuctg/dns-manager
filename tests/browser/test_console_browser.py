@@ -13,6 +13,7 @@ normal suite stays green on hosts that only run the API/unit tests.
 from __future__ import annotations
 
 import os
+import json
 import re
 import socket
 import subprocess
@@ -721,6 +722,103 @@ def test_dashboard_chart_history_survives_reload(console_page, live_console: str
     assert all(count >= 2 for count in restored), (
         f"chart lines disappeared after reload instead of restoring history: {restored}"
     )
+
+
+@pytest.mark.browser
+def test_dashboard_seeds_charts_from_server_history(console_page, live_console: str) -> None:
+    """Charts render recorded points immediately from /metrics/history, before live sampling."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    now = int(time.time() * 1000)
+    samples = [
+        {"t": now - 10_000, "cpu": 10.0, "mem": 40.0, "input": 1024.0, "output": 2048.0},
+        {"t": now - 5_000, "cpu": 20.0, "mem": 50.0, "input": 2048.0, "output": 3072.0},
+        {"t": now, "cpu": 30.0, "mem": 60.0, "input": 3072.0, "output": 4096.0},
+    ]
+
+    def _history(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(samples))
+
+    counters = {"rx": 1_000_000, "tx": 2_000_000}
+
+    def _metrics(route):
+        # cpu/mem match the newest server row so the legend assertion is stable
+        # regardless of whether replay or live set it last; decreasing counters
+        # make the live rate guard skip pushes, leaving the network legend on
+        # the replayed value.
+        counters["rx"] -= 1_000
+        counters["tx"] -= 1_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":30.0,"load_1":0.5},'
+                '"memory":{"usage_percent":60.0,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics/history", _history)
+    page.route("**/api/v1/system/metrics", _metrics)
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => {
+                const lines = [...document.querySelectorAll('[data-chart] polyline.chart-line')];
+                return lines.length >= 4
+                    && lines.every((n) => n.getAttribute('points').split(' ').length >= 3);
+            }""",
+            timeout=3500,  # well under the 5s live downsample: replay must be immediate
+        )
+        state = page.evaluate(
+            """() => ({
+                cpuLegend: document.querySelector('[data-chart-legend="cpu"]').textContent.trim(),
+                inLegend: document.querySelector('[data-chart-legend="input"]').textContent.trim(),
+            })"""
+        )
+    finally:
+        page.close()
+    assert "30" in state["cpuLegend"], f"CPU legend should show the newest server value: {state['cpuLegend']!r}"
+    assert "3.00 KB/s" in state["inLegend"], (
+        f"Input legend should show the newest server rate: {state['inLegend']!r}"
+    )
+
+
+@pytest.mark.browser
+def test_dashboard_history_failure_still_renders_charts(console_page, live_console: str) -> None:
+    """When /metrics/history is unreachable the dashboard falls back to localStorage history."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    counters = {"rx": 1_000_000, "tx": 2_000_000}
+
+    def _metrics(route):
+        counters["rx"] += 250_000
+        counters["tx"] += 500_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":14.3,"load_1":0.5},'
+                '"memory":{"usage_percent":19.7,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics/history", lambda route: route.abort("failed"))
+    page.route("**/api/v1/system/metrics", _metrics)
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        # Charts must still draw from live sampling after the failed history fetch.
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('[data-chart] polyline.chart-line')].length >= 4""",
+            timeout=9000,
+        )
+        problems = [error for error in _errors if "pageerror" in error]
+    finally:
+        page.close()
+    assert not problems, f"history failure caused page errors: {problems}"
 
 
 @pytest.mark.browser

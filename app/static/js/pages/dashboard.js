@@ -230,6 +230,34 @@ async function loadDashboard() {
   }
 }
 
+// Seed the charts from the server-recorded history (~1 h window). The server
+// is the source of truth so any device sees the same timeline; localStorage is
+// only a fallback. A failed history fetch must never break live sampling.
+async function hydrateChartsFromHistory() {
+  let rows;
+  try {
+    rows = await api('/api/v1/system/metrics/history');
+  } catch {
+    return; // fall back to whatever localStorage restored at chart creation
+  }
+  if (!Array.isArray(rows) || rows.length === 0) return;
+  const cpuPoints = rows
+    .filter((row) => Number.isFinite(Number(row.cpu)) || Number.isFinite(Number(row.mem)))
+    .map((row) => ({ t: Number(row.t), cpu: Number(row.cpu), memory: Number(row.mem) }));
+  const netPoints = rows
+    .filter((row) => Number.isFinite(Number(row.input)) || Number.isFinite(Number(row.output)))
+    .map((row) => ({ t: Number(row.t), input: Number(row.input), output: Number(row.output) }));
+  // reset() drops the localStorage copy so the server timeline is authoritative.
+  if (cpuPoints.length) {
+    charts.cpuMemory?.reset();
+    charts.cpuMemory?.replay(cpuPoints);
+  }
+  if (netPoints.length) {
+    charts.network?.reset();
+    charts.network?.replay(netPoints);
+  }
+}
+
 export async function init() {
   charts.cpuMemory = createChart($('[data-chart="cpu-memory"]'), {
     series: [
@@ -254,6 +282,10 @@ export async function init() {
     formatValue: (value) => `${fmtBytes(value)}/s`,
     xLabels: ['-60m', '-30m', t('dashboard.now')],
   });
+
+  // Seed charts from the recorded history before live polling so the graph is
+  // populated on first paint instead of starting empty.
+  await hydrateChartsFromHistory();
 
   // Metrics are independent of the summary endpoints, so they start first and
   // keep their own retry/backoff loop.

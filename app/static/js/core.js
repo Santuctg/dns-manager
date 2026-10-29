@@ -625,6 +625,20 @@ export function createChart(svg, {
     const legend = legendFor(key);
     if (legend && def) legend.textContent = `${def.label} ${formatValue(value)}`;
   };
+  // Append one downsampled point (respecting minIntervalMs) and mirror it to
+  // localStorage. Shared by live push() and history replay().
+  const record = (key, value, timestamp, persist) => {
+    const arr = history.get(key);
+    const times = stamps.get(key);
+    arr.push(value);
+    times.push(timestamp);
+    while (arr.length > capacity) {
+      arr.shift();
+      times.shift();
+    }
+    lastRecord.set(key, timestamp);
+    if (persist) saveHistory();
+  };
 
   // Chart history survives reloads: points are mirrored to localStorage with
   // their timestamps, pruned to the visible window (~capacity * minIntervalMs).
@@ -756,17 +770,39 @@ export function createChart(svg, {
       setLegend(key, number);
       const last = lastRecord.get(key);
       if (last == null || timestamp - last >= minIntervalMs) {
-        const arr = history.get(key);
-        arr.push(number);
-        stamps.get(key).push(timestamp);
-        while (arr.length > capacity) {
-          arr.shift();
-          stamps.get(key).shift();
-        }
-        lastRecord.set(key, timestamp);
+        record(key, number, timestamp, true);
         render();
-        saveHistory();
       }
+    },
+    // Seed the chart from a recorded history (server endpoint or storage) with
+    // real timestamps, then draw once. Points closer than minIntervalMs or
+    // outside the retention window are ignored so live sampling continues
+    // seamlessly without duplicating what is already drawn.
+    replay(points) {
+      const windowMs = capacity * minIntervalMs;
+      const newest = points.reduce((max, p) => Math.max(max, Number(p.t) || 0), 0);
+      const cutoff = newest - windowMs;
+      const rows = points
+        .filter((p) => {
+          const t = Number(p.t);
+          return Number.isFinite(t) && t >= cutoff && t <= newest;
+        })
+        .sort((a, b) => Number(a.t) - Number(b.t));
+      const cutoffBy = new Map(series.map((s) => [s.key, -Infinity]));
+      for (const point of rows) {
+        const t = Number(point.t);
+        for (const s of series) {
+          const value = Number(point[s.key]);
+          if (!Number.isFinite(value)) continue;
+          if (t - cutoffBy.get(s.key) < minIntervalMs) continue;
+          latest.set(s.key, value);
+          setLegend(s.key, value);
+          record(s.key, value, t, false);
+          cutoffBy.set(s.key, t);
+        }
+      }
+      saveHistory();
+      render();
     },
     latest(key) { return latest.has(key) ? latest.get(key) : null; },
     reset() {
