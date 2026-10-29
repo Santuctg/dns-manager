@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     bind_host: str = "127.0.0.1"
     bind_port: int = 8500
     database_path: str = "/var/lib/dns-manager/dns-manager.db"
+    metrics_history_path: str = "/var/lib/dns-manager/metrics-history.jsonl"
     internal_proxy_ip: str | None = None
     acme_dns_config_path: str = "/etc/dns-manager/acme-dns.conf"
     hosted_acme_config_path: str = "/etc/dns-manager/hosted-acme.conf"
