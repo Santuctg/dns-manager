@@ -822,6 +822,97 @@ def test_dashboard_history_failure_still_renders_charts(console_page, live_conso
 
 
 @pytest.mark.browser
+def test_chart_tooltip_shows_point_values(console_page, live_console: str) -> None:
+    """Hovering a chart reveals a tooltip with the values of the nearest recorded point."""
+    _page, context, _errors = console_page
+    page = context.new_page()
+    now = int(time.time() * 1000)
+    samples = [
+        {"t": now - 10_000, "cpu": 10.0, "mem": 20.0, "input": 1024.0, "output": 2048.0},
+        {"t": now - 5_000, "cpu": 50.0, "mem": 40.0, "input": 2048.0, "output": 3072.0},
+        {"t": now, "cpu": 90.0, "mem": 60.0, "input": 3072.0, "output": 4096.0},
+    ]
+    counters = {"rx": 900_000, "tx": 800_000}
+
+    def _metrics(route):
+        # Decreasing counters: the live rate guard skips pushes so the replayed
+        # timeline (and thus the tooltip) stays exactly as mocked.
+        counters["rx"] -= 1_000
+        counters["tx"] -= 1_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":90.0,"load_1":0.5},'
+                '"memory":{"usage_percent":60.0,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{now}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics/history", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=json.dumps(samples),
+    ))
+    page.route("**/api/v1/system/metrics", _metrics)
+
+    def _tooltip_state() -> dict | None:
+        return page.evaluate(
+            """() => {
+                const svg = document.querySelector('[data-chart="cpu-memory"]');
+                if (!svg) return null;
+                const tip = svg.closest('.chart-card')?.querySelector('[data-chart-tooltip]');
+                return tip ? { hidden: tip.hidden, text: tip.textContent } : null;
+            }"""
+        )
+
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('[data-chart="cpu-memory"] polyline.chart-line')]
+                .every((n) => n.getAttribute('points').split(' ').length >= 3)""",
+            timeout=3500,
+        )
+        box = page.locator('[data-chart="cpu-memory"]').bounding_box()
+        assert box, "cpu-memory chart has no layout box"
+
+        # Hover the plot centre: the nearest index clamps to the newest point.
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_function(
+            """() => !document.querySelector('[data-chart="cpu-memory"]')
+                .closest('.chart-card').querySelector('[data-chart-tooltip]').hidden""",
+            timeout=2000,
+        )
+        centre = _tooltip_state()
+
+        # Hover the left gutter: x is before the first point -> oldest sample.
+        page.mouse.move(box["x"] + 3, box["y"] + box["height"] / 2)
+        page.wait_for_function(
+            """() => document.querySelector('[data-chart="cpu-memory"]')
+                .closest('.chart-card').querySelector('[data-chart-tooltip]').textContent.includes('10.0%')""",
+            timeout=2000,
+        )
+        oldest = _tooltip_state()
+
+        # Leave the card entirely: the tooltip must hide again.
+        page.mouse.move(5, 5)
+        page.wait_for_function(
+            """() => document.querySelector('[data-chart="cpu-memory"]')
+                .closest('.chart-card').querySelector('[data-chart-tooltip]').hidden""",
+            timeout=2000,
+        )
+        left = _tooltip_state()
+    finally:
+        page.close()
+
+    assert centre is not None, "chart card has no [data-chart-tooltip] element"
+    assert not centre["hidden"] and "CPU" in centre["text"], centre
+    assert re.search(r"\d{1,2}:\d{2}", centre["text"]), f"tooltip lacks a time token: {centre['text']!r}"
+    assert "90.0%" in centre["text"], f"tooltip should show the newest point: {centre['text']!r}"
+    assert "10.0%" in oldest["text"], f"tooltip should snap to the oldest point at the left edge: {oldest['text']!r}"
+    assert left["hidden"], "tooltip must hide once the pointer leaves the chart card"
+
+
+@pytest.mark.browser
 def test_dashboard_charts_are_separated_centered_and_undistorted(console_page, live_console: str) -> None:
     """Each chart sits in its own visible card, bottom legend is centered, and chart
     text is not horizontally stretched (viewBox must match the rendered size)."""

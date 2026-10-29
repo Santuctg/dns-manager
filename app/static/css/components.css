@@ -843,6 +843,7 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 58%); }
 }
 @media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
 .chart-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -867,6 +868,21 @@ dialog.modal::backdrop { background: rgb(0 0 0 / 58%); }
 .chart-legend-item::before { content: ''; width: 8px; height: 8px; border-radius: 999px; }
 .chart-legend-accent::before { background: var(--accent); }
 .chart-legend-info::before { background: var(--info); }
+.chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: pre;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
+}
 
 .progress {
   width: 100%;

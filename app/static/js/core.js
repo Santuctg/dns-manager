@@ -613,6 +613,9 @@ export function createChart(svg, {
   const stamps = new Map(series.map((s) => [s.key, []]));
   const latest = new Map();
   const lastRecord = new Map();
+  // Last rendered plot geometry, used by the hover tooltip to map pointer x
+  // back to the nearest recorded point index.
+  const layout = { padLeft: 44, plotW: 1 };
 
   const el = (name, attrs) => {
     const node = document.createElementNS(NS, name);
@@ -721,6 +724,8 @@ export function createChart(svg, {
     // long labels (e.g. "4.41 KB/s") stay fully inside the chart.
     const padLeft = Math.max(padLeftBase, Math.max(...tickLabels.map((s) => s.length)) * 6 + 14);
     const plotW2 = Math.max(width - padLeft - padRight, 1);
+    layout.padLeft = padLeft;
+    layout.plotW = plotW2;
     const xFor = (index) => padLeft + index * (plotW2 / (capacity - 1));
 
     svg.replaceChildren();
@@ -758,6 +763,47 @@ export function createChart(svg, {
   if (typeof ResizeObserver !== 'undefined' && svg) {
     const observer = new ResizeObserver(() => render());
     observer.observe(svg);
+  }
+
+  // Hover tooltip: show the values of the point nearest the pointer. The
+  // markup contract is an absolutely-positioned div inside the chart card
+  // (position: relative on the card); pointer events stay on the SVG.
+  const card = svg ? svg.closest('.chart-card') : null;
+  const tooltip = card ? card.querySelector('[data-chart-tooltip]') : null;
+  if (tooltip && svg) {
+    const hide = () => { tooltip.hidden = true; };
+    svg.addEventListener('pointermove', (event) => {
+      const times = stamps.get(series[0]?.key);
+      const count = times ? times.length : 0;
+      if (count < 1) { hide(); return; }
+      const rect = svg.getBoundingClientRect();
+      // Inverse of render()'s xFor(): map pointer x back to a point index.
+      const frac = (event.clientX - rect.left - layout.padLeft) / Math.max(layout.plotW, 1);
+      const index = Math.min(count - 1, Math.max(0, Math.round(frac * (capacity - 1))));
+      const when = times[index];
+      if (when == null) { hide(); return; }
+      const lines = [new Date(when).toLocaleTimeString()];
+      for (const s of series) {
+        const arr = history.get(s.key);
+        const value = arr ? arr[Math.min(index, arr.length - 1)] : undefined;
+        if (!Number.isFinite(value)) continue;
+        lines.push(`${s.label} ${formatValue(value)}`);
+      }
+      if (lines.length < 2) { hide(); return; } // no readable values at this index
+      tooltip.textContent = lines.join('\n');
+      tooltip.hidden = false;
+      // Keep the tooltip inside the card: flip it to the pointer's left near
+      // the right edge, and never past the card's left/top bounds.
+      const cardRect = card.getBoundingClientRect();
+      const tipRect = tooltip.getBoundingClientRect();
+      let left = event.clientX - cardRect.left + 12;
+      if (left + tipRect.width > cardRect.width - 4) {
+        left = event.clientX - cardRect.left - tipRect.width - 12;
+      }
+      tooltip.style.left = `${Math.max(4, left)}px`;
+      tooltip.style.top = `${Math.max(4, rect.top - cardRect.top + 4)}px`;
+    });
+    svg.addEventListener('pointerleave', hide);
   }
 
   loadHistory();
