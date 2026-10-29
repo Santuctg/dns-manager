@@ -761,6 +761,9 @@ def test_dashboard_seeds_charts_from_server_history(console_page, live_console: 
 
     page.route("**/api/v1/system/metrics/history", _history)
     page.route("**/api/v1/system/metrics", _metrics)
+    # Isolate from localStorage: the charts must be provably seeded by the
+    # server history, not by points an earlier test left in storage.
+    page.add_init_script("try { localStorage.clear(); } catch (e) {}")
     try:
         page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
         page.wait_for_function(
@@ -771,6 +774,10 @@ def test_dashboard_seeds_charts_from_server_history(console_page, live_console: 
             }""",
             timeout=3500,  # well under the 5s live downsample: replay must be immediate
         )
+        counts = page.evaluate(
+            """() => [...document.querySelectorAll('[data-chart] polyline.chart-line')]
+                .map((n) => n.getAttribute('points').split(' ').length)"""
+        )
         state = page.evaluate(
             """() => ({
                 cpuLegend: document.querySelector('[data-chart-legend="cpu"]').textContent.trim(),
@@ -779,6 +786,9 @@ def test_dashboard_seeds_charts_from_server_history(console_page, live_console: 
         )
     finally:
         page.close()
+    assert counts == [3, 3, 3, 3], (
+        f"replay must draw exactly the 3 recorded samples per series (no duplicate records): {counts}"
+    )
     assert "30" in state["cpuLegend"], f"CPU legend should show the newest server value: {state['cpuLegend']!r}"
     assert "3.00 KB/s" in state["inLegend"], (
         f"Input legend should show the newest server rate: {state['inLegend']!r}"
@@ -786,10 +796,71 @@ def test_dashboard_seeds_charts_from_server_history(console_page, live_console: 
 
 
 @pytest.mark.browser
-def test_dashboard_history_failure_still_renders_charts(console_page, live_console: str) -> None:
-    """When /metrics/history is unreachable the dashboard falls back to localStorage history."""
+def test_dashboard_history_skips_null_rates(console_page, live_console: str) -> None:
+    """Null rates in the recorded history (no predecessor / counter reset) are
+    skipped instead of being charted as a fake 0."""
     _page, context, _errors = console_page
     page = context.new_page()
+    now = int(time.time() * 1000)
+    samples = [
+        {"t": now - 10_000, "cpu": 10.0, "mem": 40.0, "input": None, "output": None},
+        {"t": now - 5_000, "cpu": None, "mem": 50.0, "input": 2048.0, "output": 1024.0},
+        {"t": now, "cpu": 30.0, "mem": 60.0, "input": 3072.0, "output": 2048.0},
+    ]
+    counters = {"rx": 900_000, "tx": 800_000}
+
+    def _metrics(route):
+        # Decreasing counters: the live rate guard skips pushes, and static
+        # cpu/mem cannot add points inside the 5s downsample window.
+        counters["rx"] -= 1_000
+        counters["tx"] -= 1_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":30.0,"load_1":0.5},'
+                '"memory":{"usage_percent":60.0,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{now}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics/history", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=json.dumps(samples),
+    ))
+    page.route("**/api/v1/system/metrics", _metrics)
+    page.add_init_script("try { localStorage.clear(); } catch (e) {}")
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        # Expected per-series point counts: cpu skips the null (2 of 3), memory
+        # keeps all 3, input/output skip the null first row (2 of 3).
+        page.wait_for_function(
+            """() => {
+                const counts = (sel) => [...document.querySelectorAll(sel + ' polyline.chart-line')]
+                    .map((n) => n.getAttribute('points').split(' ').length);
+                const cpu = counts('[data-chart="cpu-memory"]');
+                const net = counts('[data-chart="network"]');
+                return cpu.length === 2 && cpu[0] === 2 && cpu[1] === 3
+                    && net.length === 2 && net[0] === 2 && net[1] === 2;
+            }""",
+            timeout=3500,
+        )
+        legend = page.evaluate(
+            "() => document.querySelector('[data-chart-legend=\"cpu\"]').textContent.trim()"
+        )
+    finally:
+        page.close()
+    assert "30" in legend, f"CPU legend must come from the newest non-null sample: {legend!r}"
+
+
+@pytest.mark.browser
+def test_dashboard_history_failure_still_renders_charts(console_page, live_console: str) -> None:
+    """When /metrics/history is unreachable the dashboard still renders charts
+    from live sampling instead of staying blank."""
+    _page, context, _fixture_errors = console_page
+    page = context.new_page()
+    errors: list[str] = []
+    _watch_errors(page, errors)  # watch the page under test, not the fixture's
     counters = {"rx": 1_000_000, "tx": 2_000_000}
 
     def _metrics(route):
@@ -808,17 +879,62 @@ def test_dashboard_history_failure_still_renders_charts(console_page, live_conso
 
     page.route("**/api/v1/system/metrics/history", lambda route: route.abort("failed"))
     page.route("**/api/v1/system/metrics", _metrics)
+    # No storage fallback here: the charts must come up from live samples alone.
+    page.add_init_script("try { localStorage.clear(); } catch (e) {}")
     try:
         page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
         # Charts must still draw from live sampling after the failed history fetch.
         page.wait_for_function(
             """() => [...document.querySelectorAll('[data-chart] polyline.chart-line')].length >= 4""",
-            timeout=9000,
+            timeout=12000,
         )
-        problems = [error for error in _errors if "pageerror" in error]
+        problems = [error for error in errors if "pageerror" in error]
     finally:
         page.close()
     assert not problems, f"history failure caused page errors: {problems}"
+
+
+@pytest.mark.browser
+def test_dashboard_history_hang_does_not_block_live_sampling(console_page, live_console: str) -> None:
+    """A hung /history response must not delay live metric polling."""
+    _page, context, _fixture_errors = console_page
+    page = context.new_page()
+    errors: list[str] = []
+    _watch_errors(page, errors)
+    counters = {"rx": 1_000_000, "tx": 2_000_000}
+
+    def _metrics(route):
+        counters["rx"] += 250_000
+        counters["tx"] += 500_000
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"cpu":{"usage_percent":14.3,"load_1":0.5},'
+                '"memory":{"usage_percent":19.7,"used_bytes":2000000000,"total_bytes":10000000000},'
+                f'"network":{{"interfaces":[{{"rx_bytes":{counters["rx"]},"tx_bytes":{counters["tx"]}}}]}},'
+                f'"sampled_at_ms":{int(time.time() * 1000)}}}'
+            ),
+        )
+
+    page.route("**/api/v1/system/metrics/history", lambda route: None)  # never answered
+    page.route("**/api/v1/system/metrics", _metrics)
+    page.add_init_script("try { localStorage.clear(); } catch (e) {}")
+    try:
+        page.goto(f"{live_console}/app/dashboard", wait_until="domcontentloaded")
+        # The legend only fills once live polling runs; the history timeout must
+        # bound the wait instead of leaving init() pending forever.
+        page.wait_for_function(
+            """() => {
+                const legend = document.querySelector('[data-chart-legend="cpu"]');
+                return legend && /\\d/.test(legend.textContent);
+            }""",
+            timeout=8000,
+        )
+        problems = [error for error in errors if "pageerror" in error]
+    finally:
+        page.close()
+    assert not problems, f"hung history fetch caused page errors: {problems}"
 
 
 @pytest.mark.browser
@@ -854,6 +970,8 @@ def test_chart_tooltip_shows_point_values(console_page, live_console: str) -> No
         status=200, content_type="application/json", body=json.dumps(samples),
     ))
     page.route("**/api/v1/system/metrics", _metrics)
+    # Isolate from storage: the hover target must be the replayed timeline.
+    page.add_init_script("try { localStorage.clear(); } catch (e) {}")
 
     def _tooltip_state() -> dict | None:
         return page.evaluate(

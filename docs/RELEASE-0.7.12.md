@@ -44,13 +44,19 @@ points show nothing.
 
 ## Verification
 
-- Browser suite: 25 passed, including three new tests:
+- Browser suite: 27 passed, including five new tests:
   `test_dashboard_seeds_charts_from_server_history` (charts render the mocked
-  server history immediately), `test_dashboard_history_failure_still_renders_charts`
-  (aborted history fetch falls back without page errors), and
+  server history immediately, exactly 3 points per series — no duplicate
+  records), `test_dashboard_history_failure_still_renders_charts` (aborted
+  history fetch falls back to live sampling without page errors),
+  `test_dashboard_history_skips_null_rates` (null rates from counter resets are
+  skipped, never charted as a fake 0),
+  `test_dashboard_history_hang_does_not_block_live_sampling` (a stalled
+  history request cannot delay live polling), and
   `test_chart_tooltip_shows_point_values` (tooltip shows/hides with hover).
-- Linux container suite: 494 passed, 1 skipped (unit tests for the
-  JSONL recorder/reader and integration tests for the new endpoint and the
+- Linux container suite: 498 passed, 1 skipped (unit tests for the
+  JSONL recorder/reader — including concurrent-writer prune isolation and
+  corrupt-line tolerance — and integration tests for the new endpoint and the
   app-lifespan recorder lifecycle included).
 - No database migration. Firewall, SSL, mapping, and backup behavior are
   unchanged.

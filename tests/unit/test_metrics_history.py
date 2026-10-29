@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -53,11 +54,15 @@ def test_read_history_computes_rates(tmp_path: Path):
 
 def test_read_history_deduplicates_identical_samples(tmp_path: Path):
     path = tmp_path / "history.jsonl"
-    # Two gunicorn workers recording the same 5 s bucket.
-    record_sample(_metrics(rx=100, tx=200, t=NOW - 10_000), path=path)
-    record_sample(_metrics(rx=100, tx=200, t=NOW - 10_000 + 1000), path=path)
+    # Two gunicorn workers recording the same 5 s bucket. Align the pair to the
+    # bucket grid so it can never straddle a 5 s boundary (a wall-clock pair
+    # would flake depending on where NOW falls inside the bucket).
+    bucket_start = (NOW // 5_000) * 5_000 - 5_000
+    record_sample(_metrics(rx=100, tx=200, t=bucket_start), path=path)
+    record_sample(_metrics(rx=999, tx=888, t=bucket_start + 1_000), path=path)
     rows = read_history(path=path, now_ms=NOW)
-    assert len(rows) == 1
+    # One sample per bucket, and the earliest of the pair is the keeper.
+    assert [row["t"] for row in rows] == [bucket_start]
 
 
 def test_read_history_drops_stale_samples(tmp_path: Path):
@@ -101,6 +106,68 @@ def test_read_history_missing_file_returns_empty():
     assert read_history(path=Path("/nonexistent/dir/history.jsonl")) == []
 
 
+def test_prune_does_not_clobber_foreign_temp_file(tmp_path: Path, monkeypatch):
+    from app.services import metrics_history
+
+    path = tmp_path / "history.jsonl"
+    # The other gunicorn worker's in-flight temp file in the same directory.
+    foreign = tmp_path / "history.jsonl.tmp"
+    foreign.write_text("other-worker-in-flight\n")
+    monkeypatch.setattr(metrics_history, "_last_prune", 0.0)  # force a prune now
+    record_sample(_metrics(rx=1, tx=1, t=NOW), path=path)
+    assert foreign.exists() and foreign.read_text() == "other-worker-in-flight\n", (
+        "prune must write through its own pid-unique temp file, never the other worker's"
+    )
+    leftovers = sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp"))
+    assert leftovers == ["history.jsonl.tmp"], f"own temp must be consumed by os.replace: {leftovers}"
+
+
+def test_read_history_survives_binary_corruption(tmp_path: Path):
+    path = tmp_path / "history.jsonl"
+    record_sample(_metrics(rx=5, tx=6, t=NOW - 20_000), path=path)
+    with path.open("ab") as handle:
+        handle.write(b"\xff\xfe not utf-8\n")  # torn write left invalid bytes
+    rows = read_history(path=path, now_ms=NOW)
+    assert [row["t"] for row in rows] == [NOW - 20_000]
+
+
+def test_prune_survives_non_object_lines(tmp_path: Path, monkeypatch):
+    from app.services import metrics_history
+
+    path = tmp_path / "history.jsonl"
+    record_sample(_metrics(rx=5, tx=6, t=NOW - 20_000), path=path)
+    with path.open("a") as handle:
+        handle.write("5\n[1, 2]\n")  # valid JSON, but not an object
+    monkeypatch.setattr(metrics_history, "_last_prune", 0.0)  # force a prune now
+    record_sample(_metrics(rx=6, tx=7, t=NOW), path=path)
+    kept = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    assert [row["t"] for row in kept] == [NOW - 20_000, NOW], kept
+
+
+def test_recorder_survives_unwritable_path(tmp_path: Path, monkeypatch):
+    from app.services import metrics_history
+
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x")
+    path = blocker / "history.jsonl"  # parent is a file: mkdir/open must fail
+
+    class _Settings:
+        metrics_history_path = str(path)
+
+    monkeypatch.setattr(metrics_history, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(metrics_history, "collect_metrics", lambda: _metrics(rx=1, tx=2))
+    monkeypatch.setattr(metrics_history, "SAMPLE_INTERVAL", 0.05)
+    try:
+        start_recorder()  # must return without raising even though writes fail
+        time.sleep(0.2)
+        assert metrics_history.recorder_thread() is not None, (
+            "recorder must keep looping past write failures instead of dying"
+        )
+        assert not path.exists()
+    finally:
+        stop_recorder()
+
+
 def test_start_stop_recorder_is_idempotent(tmp_path: Path, monkeypatch):
     from app.services import metrics_history
 
@@ -108,12 +175,16 @@ def test_start_stop_recorder_is_idempotent(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(metrics_history, "get_settings", lambda: type("S", (), {"metrics_history_path": str(path)})())
     monkeypatch.setattr(metrics_history, "collect_metrics", lambda: _metrics(rx=1, tx=2))
     monkeypatch.setattr(metrics_history, "SAMPLE_INTERVAL", 0.05)
-    start_recorder()
-    start_recorder()  # second call must not start a second thread
-    deadline = time.time() + 3
-    while time.time() < deadline and (not path.is_file() or not path.read_text().strip()):
-        time.sleep(0.02)
-    assert path.is_file() and path.read_text().strip(), "recorder never wrote a sample"
-    stop_recorder()
-    stop_recorder()  # idempotent
-    assert metrics_history.recorder_thread() is None
+    try:
+        start_recorder()
+        start_recorder()  # second call must not start a second thread
+        assert len([t for t in threading.enumerate() if t.name == "metrics-history"]) == 1
+        deadline = time.time() + 3
+        while time.time() < deadline and (not path.is_file() or not path.read_text().strip()):
+            time.sleep(0.02)
+        assert path.is_file() and path.read_text().strip(), "recorder never wrote a sample"
+        stop_recorder()
+        stop_recorder()  # idempotent
+        assert metrics_history.recorder_thread() is None
+    finally:
+        stop_recorder()  # never leak a recorder into the rest of the suite

@@ -838,7 +838,11 @@ export function createChart(svg, {
       for (const point of rows) {
         const t = Number(point.t);
         for (const s of series) {
-          const value = Number(point[s.key]);
+          const raw = point[s.key];
+          // null/undefined = unknown value (first sample, counter reset,
+          // missing field): skip the point, never chart a fabricated 0.
+          if (raw == null) continue;
+          const value = Number(raw);
           if (!Number.isFinite(value)) continue;
           if (t - cutoffBy.get(s.key) < minIntervalMs) continue;
           latest.set(s.key, value);

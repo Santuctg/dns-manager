@@ -232,29 +232,42 @@ async function loadDashboard() {
 
 // Seed the charts from the server-recorded history (~1 h window). The server
 // is the source of truth so any device sees the same timeline; localStorage is
-// only a fallback. A failed history fetch must never break live sampling.
+// only a fallback. A failed or hung history fetch must never break (or delay)
+// live sampling.
 async function hydrateChartsFromHistory() {
   let rows;
   try {
-    rows = await api('/api/v1/system/metrics/history');
+    // Race the fetch against a short timeout: /history is an enhancement, so a
+    // stalled server must not leave init() pending (poll starts after this).
+    rows = await Promise.race([
+      api('/api/v1/system/metrics/history'),
+      new Promise((resolve) => setTimeout(() => resolve(undefined), 4000)),
+    ]);
   } catch {
     return; // fall back to whatever localStorage restored at chart creation
   }
   if (!Array.isArray(rows) || rows.length === 0) return;
-  const cpuPoints = rows
-    .filter((row) => Number.isFinite(Number(row.cpu)) || Number.isFinite(Number(row.mem)))
-    .map((row) => ({ t: Number(row.t), cpu: Number(row.cpu), memory: Number(row.mem) }));
-  const netPoints = rows
-    .filter((row) => Number.isFinite(Number(row.input)) || Number.isFinite(Number(row.output)))
-    .map((row) => ({ t: Number(row.t), input: Number(row.input), output: Number(row.output) }));
-  // reset() drops the localStorage copy so the server timeline is authoritative.
-  if (cpuPoints.length) {
-    charts.cpuMemory?.reset();
-    charts.cpuMemory?.replay(cpuPoints);
-  }
-  if (netPoints.length) {
-    charts.network?.reset();
-    charts.network?.replay(netPoints);
+  try {
+    // null means "unknown" (first sample, counter reset): keep it null so the
+    // replay skips the point instead of charting a fabricated 0.
+    const num = (value) => (value == null ? null : Number(value));
+    const cpuPoints = rows
+      .filter((row) => row.cpu != null || row.mem != null)
+      .map((row) => ({ t: Number(row.t), cpu: num(row.cpu), memory: num(row.mem) }));
+    const netPoints = rows
+      .filter((row) => row.input != null || row.output != null)
+      .map((row) => ({ t: Number(row.t), input: num(row.input), output: num(row.output) }));
+    // reset() drops the localStorage copy so the server timeline is authoritative.
+    if (cpuPoints.length) {
+      charts.cpuMemory?.reset();
+      charts.cpuMemory?.replay(cpuPoints);
+    }
+    if (netPoints.length) {
+      charts.network?.reset();
+      charts.network?.replay(netPoints);
+    }
+  } catch {
+    // malformed history must never break the dashboard: keep whatever is drawn
   }
 }
 

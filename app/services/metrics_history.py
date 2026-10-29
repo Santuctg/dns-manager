@@ -43,15 +43,22 @@ def _prune(path: Path, now_ms: int) -> None:
     """Drop lines older than the window via atomic replace (temp file + rename)."""
     cutoff = now_ms - WINDOW_MS
     lines = []
-    for line in path.read_text().splitlines():
+    # errors="replace": a torn write that left invalid bytes must degrade to
+    # skipped lines, never break the rewrite (which would grow the file forever).
+    for line in path.read_text(errors="replace").splitlines():
         if not line.strip():
             continue
         try:
-            if int(json.loads(line).get("t", 0)) >= cutoff:
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                continue  # valid JSON but not a sample: drop it
+            if int(row.get("t", 0)) >= cutoff:
                 lines.append(line)
         except (ValueError, TypeError):
             continue  # malformed line: drop it while we're rewriting anyway
-    temp = path.with_name(path.name + ".tmp")
+    # Both gunicorn workers prune concurrently: the temp name must be unique
+    # per process so one worker can never truncate the other's in-flight file.
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temp.write_text("\n".join(lines) + ("\n" if lines else ""))
     os.replace(temp, path)
 
@@ -101,7 +108,7 @@ def read_history(*, path: Path | None = None, now_ms: int | None = None) -> list
     rows: list[dict] = []
     seen_buckets: set[int] = set()
     try:
-        raw_lines = path.read_text().splitlines()
+        raw_lines = path.read_text(errors="replace").splitlines()
     except OSError:
         return []
     for line in raw_lines:
@@ -175,9 +182,15 @@ def stop_recorder() -> None:
     global _thread
     with _lock:
         _stop.set()
-        thread, _thread = _thread, None
-    if thread is not None:
-        thread.join(timeout=2)
+        thread = _thread
+        if thread is not None:
+            # Join under the lock so a concurrent start_recorder() cannot clear
+            # the stop event while this thread is still winding down (which
+            # would leave two recorders running). Only drop the reference once
+            # the thread is actually dead, so recorder_thread() never lies.
+            thread.join(timeout=2)
+            if not thread.is_alive():
+                _thread = None
 
 
 def recorder_thread() -> threading.Thread | None:
