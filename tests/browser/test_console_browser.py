@@ -341,6 +341,46 @@ def test_console_page_smoke(console_page, live_console: str, page_name: str) -> 
 
 
 @pytest.mark.browser
+def test_table_row_separators_are_unbroken(console_page, live_console: str) -> None:
+    """Cells must stay table-cell so each row draws one continuous border line.
+
+    ``.cell-primary`` used to set ``display: flex`` directly on ``<td>``, which
+    drops the cell out of the table's row layout: its bottom border lands a
+    pixel away from its siblings and the separator renders as a broken line.
+    """
+    page, _context, _errors = console_page
+    page.set_viewport_size({"width": 1440, "height": 900})
+    problems: list[str] = []
+    for name in PAGES:
+        page.goto(f"{live_console}/app/{name}", wait_until="load")
+        page.wait_for_timeout(500)
+        issues = page.evaluate(
+            """() => {
+                const out = [];
+                document.querySelectorAll('table tr').forEach((row) => {
+                    const cells = [...row.children].filter((cell) => cell.matches('td, th'));
+                    if (cells.length < 2) return;
+                    const displays = cells.map((cell) => getComputedStyle(cell).display);
+                    displays.forEach((display, index) => {
+                        if (display !== 'table-cell') {
+                            out.push(`display=${display} on ${cells[index].tagName}` +
+                                `.${cells[index].className} in <${row.parentElement.tagName}.${row.parentElement.className}>`);
+                        }
+                    });
+                    const bottoms = cells.map((cell) => Math.round(cell.getBoundingClientRect().bottom));
+                    if (new Set(bottoms).size > 1) {
+                        out.push(`row border bottoms misaligned: ${bottoms.join(',')}` +
+                            ` (${cells.map((cell) => cell.className || cell.tagName).join(' | ')})`);
+                    }
+                });
+                return out;
+            }"""
+        )
+        problems.extend(f"{name}: {issue}" for issue in issues)
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.browser
 def test_login_page_smoke(console_page, live_console: str) -> None:
     _page, context, _errors = console_page
     browser = context.browser

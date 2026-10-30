@@ -293,6 +293,13 @@ td .muted { font-size: var(--text-xs); }
   gap: 2px;
   min-width: 0;
 }
+/* A <td> must stay a table-cell: flex on the cell itself pulls it out of the
+   row's layout, so its bottom border lands a pixel away from its siblings and
+   the row separator renders as a broken line. Stack the cell's own children
+   with block layout instead (the media query below re-enables flex for the
+   mobile card view, where td is intentionally not a table-cell). */
+td.cell-primary { display: table-cell; }
+td.cell-primary > strong + * { margin-top: 2px; }
 .cell-primary strong { overflow-wrap: anywhere; }
 .cell-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .table-toolbar {
