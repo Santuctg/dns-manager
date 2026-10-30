@@ -69,13 +69,15 @@
 <a class="skip-link" href="#main-content">{{ t('common.skip_to_content') }}</a>
   <div class="shell">
     <aside class="sidebar" aria-label="{{ t('nav.primary') }}">
-      <a class="brand" href="/app/dashboard">
-        <span class="brand-mark" aria-hidden="true">DN</span>
-        <span class="brand-name">{{ t('app.name') }}</span>
-      </a>
-      <button class="rail-toggle" type="button" data-sidebar-toggle aria-label="{{ t('nav.collapse') }}">
-        {{ icon('chevron', 'icon icon-sm') }}
-      </button>
+      <div class="sidebar-head">
+        <a class="brand" href="/app/dashboard">
+          <span class="brand-mark" aria-hidden="true">DN</span>
+          <span class="brand-name">{{ t('app.name') }}</span>
+        </a>
+        <button class="rail-toggle" type="button" data-sidebar-toggle aria-label="{{ t('nav.collapse') }}">
+          {{ icon('chevron', 'icon icon-sm') }}
+        </button>
+      </div>
       <nav class="nav-groups">
         {% for group in nav_groups %}
         <div class="nav-group">
