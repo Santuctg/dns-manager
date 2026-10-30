@@ -1,5 +1,6 @@
 {% macro icon(name, cls='icon') -%}
-<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="#icon-{{ name }}"></use></svg>
+{%- set sym = name if name.startswith('icon-') else 'icon-' + name -%}
+<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="#{{ sym }}"></use></svg>
 {%- endmacro %}
 
 {% macro badge(text, tone='') -%}
