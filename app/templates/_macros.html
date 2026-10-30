@@ -1,5 +1,5 @@
 {% macro icon(name, cls='icon') -%}
-<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="/static/icons.svg#icon-{{ name }}"></use></svg>
+<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="#icon-{{ name }}"></use></svg>
 {%- endmacro %}
 
 {% macro badge(text, tone='') -%}

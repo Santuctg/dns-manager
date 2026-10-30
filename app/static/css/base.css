@@ -259,19 +259,22 @@ body.sidebar-collapsed .shell {
   color: var(--text-muted);
   font-weight: 400;
   text-decoration: none;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
 }
 .nav-item:hover {
   background: var(--surface-2);
+  border-color: var(--border-strong);
   color: var(--text);
   text-decoration: none;
 }
 .nav-item.active {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
   font-weight: 600;
 }
+.nav-item.active .icon { color: var(--accent); }
 .nav-item.active .icon { color: var(--accent); }
 .nav-label { white-space: nowrap; overflow: hidden; }
 
