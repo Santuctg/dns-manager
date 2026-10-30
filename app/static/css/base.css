@@ -313,6 +313,9 @@ body.sidebar-collapsed .shell {
   z-index: 40;
 }
 .rail-toggle:hover { color: var(--text); }
+/* Chevron shows collapse/expand direction: expanded -> left (click to collapse),
+   collapsed -> right (click to expand). The sprite chevron points down, so rotate it. */
+.rail-toggle .icon { transform: rotate(90deg); }
 body.sidebar-collapsed .brand-name,
 body.sidebar-collapsed .nav-label,
 body.sidebar-collapsed .nav-group-label,
@@ -323,7 +326,7 @@ body.sidebar-collapsed .sidebar-footer .btn span {
 body.sidebar-collapsed .nav-group { gap: var(--space-1); }
 body.sidebar-collapsed .nav-item { justify-content: center; padding: var(--space-2); }
 body.sidebar-collapsed .rail-toggle { align-self: center; }
-body.sidebar-collapsed .rail-toggle .icon { transform: rotate(180deg); }
+body.sidebar-collapsed .rail-toggle .icon { transform: rotate(-90deg); }
 
 .main-col {
   display: flex;
