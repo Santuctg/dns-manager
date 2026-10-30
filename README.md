@@ -10,8 +10,6 @@
 >
 > **Typical use:** Route `app.example.com` to `192.168.1.20:8080`, preview its Nginx and local DNS configuration, validate and apply it, manage HTTPS, restrict inbound access by CIDR and monitor the server.
 
-**Current release:** [v0.7.7](https://github.com/Santuctg/dns-manager/releases/tag/v0.7.7) · **Deployment:** Linux host with systemd, Nginx and dnsmasq · **Docker image:** not provided.
-
 ---
 
 ## ✨ What can you do with DNS Manager?
